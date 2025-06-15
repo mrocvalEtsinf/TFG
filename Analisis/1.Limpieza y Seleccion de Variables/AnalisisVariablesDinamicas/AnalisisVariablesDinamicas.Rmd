@@ -1,0 +1,1091 @@
+---
+title: "Analisis Variables Dinamicas"
+author: "Manuel Rocamora Valenti"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true         # Activa el índice
+    toc_depth: 3      # Niveles de encabezado incluidos (puedes cambiarlo)
+    toc_float: true   # Hace que el índice flote al hacer scroll
+    df_print: paged   # Imprime dataframes con paginación
+---
+
+# INTRODUCCIÓN
+
+En el conjunto de datos se ha detectado que algunas variables están disponibles para distintos estados del tratamiento. Para los modelos que vamos a utilizar, podría ser más adecuado introducir un resumen de estas variables. Por ello, vamos a estudiarlas gráficamente y extraer conclusiones para cada una de ellas.
+
+# LIMPIEZA DE DATOS
+
+Vamos a quedarnos tan solo con las variables de interes, el resto las eliminamos.
+
+```{r}
+# Carga de datos
+data = read.csv('datos_limpios.csv')
+
+# Eliminamos las columnas que no están duplicadas
+library(dplyr)
+
+data <- data %>%
+  select(
+    -Sex, -Age_at_diagnosis, -Elderly, -ECOG, -BMI,
+    -Percentage_weight_loss, -Weight_loss_yes_no, -Smoking_habit,
+    -Smoking_exposure, -Diabetes, -Cardiopathy, -Neurodegenerative_disease,
+    -Histology, -Histology_num, -Stage, -Stage_num, -PD_L1, -Mutation_status,
+    -Statins, -Total_cholesterol, -LDH, -CRP, -ALI_pre, -Number_of_cycles,
+    -Treatment_interruption, -Interruption_reason, -Progression,
+    -Second_line_treatment,-PFS, -PFS_censored, -Education,
+    -Household
+  )
+
+data
+```
+
+# ANÁLISIS VARIABLE A VARIABLE
+
+Vamos a ir, variable a variables, estudiando su comportamiento temporal y correlación, veremos si existe mucha correlación o no entre ellas, con la idea de agruparlas dado el caso.
+
+## Proteina
+
+```{r}
+library(tidyverse)
+library(plotly)
+
+vars_proteina <- c("Total_protein", "Protein_1C", "Protein_2C", "Protein_1eval")
+
+df_long1 <- data %>%
+  select(Patient_ID, Mejor_resp, all_of(vars_proteina)) %>%
+  pivot_longer(cols = all_of(vars_proteina), names_to = "Momento", values_to = "Valor") %>%
+  mutate(Momento = factor(Momento, levels = vars_proteina))  # <- AQUÍ está la clave
+
+g1 <- ggplot(df_long1, aes(x = Momento, y = Valor, group = Patient_ID, color = as.factor(Mejor_resp))) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  theme_minimal() +
+  labs(
+    title = "Evolución de proteína por paciente",
+    subtitle = "Color según mejor respuesta al tratamiento",
+    x = "Momento",
+    y = "Valor proteína",
+    color = "Mejor respuesta"
+  )
+
+ggplotly(g1)
+```
+
+```{r}
+df_long2 <- data %>%
+  select(Patient_ID, First_eval, all_of(vars_proteina)) %>%
+  pivot_longer(cols = all_of(vars_proteina), names_to = "Momento", values_to = "Valor") %>%
+  mutate(Momento = factor(Momento, levels = vars_proteina))  # <- Orden correcto
+
+g2 <- ggplot(df_long2, aes(
+  x = Momento,
+  y = Valor,
+  group = Patient_ID,
+  color = as.factor(First_eval)
+)) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  theme_minimal() +
+  labs(
+    title = "Evolución de proteína por paciente",
+    subtitle = "Color según mejor respuesta al tratamiento",
+    x = "Momento",
+    y = "Valor proteína",
+    color = "First_eval"
+  )
+
+ggplotly(g2)
+
+library(GGally)
+
+# Selección de las variables a correlacionar
+vars_proteina <- c("Total_protein", "Protein_1C", "Protein_2C", "Protein_1eval")
+df_corr <- data %>% select(all_of(vars_proteina))
+
+# Gráfico de correlación
+ggcorr(df_corr, 
+       label = TRUE, 
+       label_round = 2,
+       label_size = 4,
+       low = "steelblue", high = "red",
+       name = "Correlación") +
+  ggtitle("Matriz de correlación (proteínas)")
+
+```
+
+Correlaciones moderadas-altas (0.60--0.78) → variables relacionadas pero no idénticas. Se puede considerar resumir, aunque podrían aportar info complementaria.
+
+## Albumin
+
+```{r}
+# Variables longitudinales de Albumina
+vars_Albumin <- c("Albumin", "Albumin_1C", "Albumin_2C", "Albumin_1eval")
+
+# =====================
+# GRÁFICO 1 - Color por Mejor_resp
+# =====================
+df_long1 <- data %>%
+  select(Patient_ID, Mejor_resp, all_of(vars_Albumin)) %>%
+  pivot_longer(cols = all_of(vars_Albumin), names_to = "Momento", values_to = "Valor") %>%
+  mutate(Momento = factor(Momento, levels = vars_Albumin))  # Orden explícito
+
+g1 <- ggplot(df_long1, aes(
+  x = Momento,
+  y = Valor,
+  group = Patient_ID,
+  color = as.factor(Mejor_resp),
+  text = paste(
+    "Paciente:", Patient_ID,
+    "<br>Momento:", Momento,
+    "<br>Valor:", round(Valor, 2),
+    "<br>Mejor respuesta:", Mejor_resp
+  )
+)) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  theme_minimal() +
+  labs(
+    title = "Evolución de Albumina por paciente",
+    subtitle = "Color según mejor respuesta al tratamiento",
+    x = "Momento",
+    y = "Valor Albumina",
+    color = "Mejor respuesta"
+  )
+
+ggplotly(g1, tooltip = "text")
+
+
+# =====================
+# GRÁFICO 2 - Color por First_eval
+# =====================
+df_long2 <- data %>%
+  select(Patient_ID, First_eval, all_of(vars_Albumin)) %>%
+  pivot_longer(cols = all_of(vars_Albumin), names_to = "Momento", values_to = "Valor") %>%
+  mutate(Momento = factor(Momento, levels = vars_Albumin))  # Orden explícito
+
+g2 <- ggplot(df_long2, aes(
+  x = Momento,
+  y = Valor,
+  group = Patient_ID,
+  color = as.factor(First_eval),
+  text = paste(
+    "Paciente:", Patient_ID,
+    "<br>Momento:", Momento,
+    "<br>Valor:", round(Valor, 2),
+    "<br>1ª evaluación:", First_eval
+  )
+)) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  theme_minimal() +
+  labs(
+    title = "Evolución de Albumina por paciente",
+    subtitle = "Color según 1ª evaluación",
+    x = "Momento",
+    y = "Valor Albumina",
+    color = "First_eval"
+  )
+
+ggplotly(g2, tooltip = "text")
+
+
+# =====================
+# MATRIZ DE CORRELACIÓN
+# =====================
+df_corr <- data %>% select(all_of(vars_Albumin))
+
+ggcorr(df_corr,
+       label = TRUE,
+       label_round = 2,
+       label_size = 4,
+       low = "steelblue", high = "red",
+       name = "Correlación") +
+  ggtitle("Matriz de correlación (Albumina)")
+```
+
+## Hemoglobin
+
+```{r}
+
+vars_Hemo <- c("Hemoglobin", "Hemoglobin_1C", "Hemoglobin_2C", "Hemoglobin_1eval")
+
+# Gráfico 1 - Mejor_resp
+df_long1 <- data %>%
+  select(Patient_ID, Mejor_resp, all_of(vars_Hemo)) %>%
+  pivot_longer(cols = all_of(vars_Hemo), names_to = "Momento", values_to = "Valor") %>%
+  mutate(Momento = factor(Momento, levels = vars_Hemo))
+
+g1 <- ggplot(df_long1, aes(
+  x = Momento, y = Valor,
+  group = Patient_ID, color = as.factor(Mejor_resp)
+)) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  theme_minimal() +
+  labs(
+    title = "Evolución de Hemo por paciente",
+    subtitle = "Color según mejor respuesta al tratamiento",
+    x = "Momento", y = "Valor Hemo",
+    color = "Mejor respuesta"
+  )
+
+ggplotly(g1)
+
+
+# Gráfico 2 - First_eval
+df_long2 <- data %>%
+  select(Patient_ID, First_eval, all_of(vars_Hemo)) %>%
+  pivot_longer(cols = all_of(vars_Hemo), names_to = "Momento", values_to = "Valor") %>%
+  mutate(Momento = factor(Momento, levels = vars_Hemo))
+
+g2 <- ggplot(df_long2, aes(
+  x = Momento, y = Valor,
+  group = Patient_ID, color = as.factor(First_eval)
+)) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  theme_minimal() +
+  labs(
+    title = "Evolución de Hemo por paciente",
+    subtitle = "Color según mejor respuesta al tratamiento",
+    x = "Momento", y = "Valor Hemo",
+    color = "First_eval"
+  )
+
+ggplotly(g2)
+
+
+# Matriz de correlación
+df_corr <- data %>% select(all_of(vars_Hemo))
+
+ggcorr(df_corr,
+       label = TRUE,
+       label_round = 2,
+       label_size = 4,
+       low = "steelblue", high = "red",
+       name = "Correlación") +
+  ggtitle("Matriz de correlación (Hemo)")
+```
+
+Alta correlación
+
+## Leukocytes
+
+```{r}
+# Variables longitudinales de leucocitos
+vars_Leuko <- c("Total_leukocytes", "Leukocytes_1C", "Leukocytes_2C", "Leukocytes_1eval")
+
+# =====================
+# GRÁFICO 1 - Color por Mejor_resp
+# =====================
+df_long1 <- data %>%
+  select(Patient_ID, Mejor_resp, all_of(vars_Leuko)) %>%
+  pivot_longer(cols = all_of(vars_Leuko), names_to = "Momento", values_to = "Valor") %>%
+  mutate(Momento = factor(Momento, levels = vars_Leuko))
+
+g1 <- ggplot(df_long1, aes(
+  x = Momento,
+  y = Valor,
+  group = Patient_ID,
+  color = as.factor(Mejor_resp),
+  text = paste(
+    "Paciente:", Patient_ID,
+    "<br>Momento:", Momento,
+    "<br>Valor:", round(Valor, 2),
+    "<br>Mejor respuesta:", Mejor_resp
+  )
+)) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  theme_minimal() +
+  labs(
+    title = "Evolución de leucocitos por paciente",
+    subtitle = "Color según mejor respuesta al tratamiento",
+    x = "Momento",
+    y = "Valor leucocitos",
+    color = "Mejor respuesta"
+  )
+
+ggplotly(g1, tooltip = "text")
+
+
+# =====================
+# GRÁFICO 2 - Color por 1ª_eval
+# =====================
+df_long2 <- data %>%
+  select(Patient_ID, First_eval, all_of(vars_Leuko)) %>%
+  pivot_longer(cols = all_of(vars_Leuko), names_to = "Momento", values_to = "Valor") %>%
+  mutate(Momento = factor(Momento, levels = vars_Leuko))
+
+g2 <- ggplot(df_long2, aes(
+  x = Momento,
+  y = Valor,
+  group = Patient_ID,
+  color = as.factor(First_eval),
+  text = paste(
+    "Paciente:", Patient_ID,
+    "<br>Momento:", Momento,
+    "<br>Valor:", round(Valor, 2),
+    "<br>1ª evaluación:", First_eval
+  )
+)) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  theme_minimal() +
+  labs(
+    title = "Evolución de leucocitos por paciente",
+    subtitle = "Color según 1ª evaluación",
+    x = "Momento",
+    y = "Valor leucocitos",
+    color = "1ª evaluación"
+  )
+
+ggplotly(g2, tooltip = "text")
+
+
+# =====================
+# MATRIZ DE CORRELACIÓN
+# =====================
+df_corr <- data %>% select(all_of(vars_Leuko))
+
+ggcorr(df_corr,
+       label = TRUE,
+       label_round = 2,
+       label_size = 4,
+       low = "steelblue", high = "red",
+       name = "Correlación") +
+  ggtitle("Matriz de correlación (leucocitos)")
+```
+
+Alta correlación, excepto el Total con el Final de los leukocitos
+
+## Neutrofilos
+
+```{r}
+# Variables longitudinales de neutrófilos
+vars_Neutro <- c("Neutrophils", "Neutrophils_1C", "Neutrophils_2C", "Neutrophils_1eval")
+
+# =====================
+# GRÁFICO 1 - Color por Mejor_resp
+# =====================
+df_long1 <- data %>%
+  select(Patient_ID, Mejor_resp, all_of(vars_Neutro)) %>%
+  pivot_longer(cols = all_of(vars_Neutro), names_to = "Momento", values_to = "Valor") %>%
+  mutate(Momento = factor(Momento, levels = vars_Neutro))
+
+g1 <- ggplot(df_long1, aes(
+  x = Momento,
+  y = Valor,
+  group = Patient_ID,
+  color = as.factor(Mejor_resp),
+  text = paste(
+    "Paciente:", Patient_ID,
+    "<br>Momento:", Momento,
+    "<br>Valor:", round(Valor, 2),
+    "<br>Mejor respuesta:", Mejor_resp
+  )
+)) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  theme_minimal() +
+  labs(
+    title = "Evolución de neutrófilos por paciente",
+    subtitle = "Color según mejor respuesta al tratamiento",
+    x = "Momento",
+    y = "Valor neutrófilos",
+    color = "Mejor respuesta"
+  )
+
+ggplotly(g1, tooltip = "text")
+
+
+# =====================
+# GRÁFICO 2 - Color por First_eval
+# =====================
+df_long2 <- data %>%
+  select(Patient_ID, First_eval, all_of(vars_Neutro)) %>%
+  pivot_longer(cols = all_of(vars_Neutro), names_to = "Momento", values_to = "Valor") %>%
+  mutate(Momento = factor(Momento, levels = vars_Neutro))
+
+g2 <- ggplot(df_long2, aes(
+  x = Momento,
+  y = Valor,
+  group = Patient_ID,
+  color = as.factor(First_eval),
+  text = paste(
+    "Paciente:", Patient_ID,
+    "<br>Momento:", Momento,
+    "<br>Valor:", round(Valor, 2),
+    "<br>1ª evaluación:", First_eval
+  )
+)) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  theme_minimal() +
+  labs(
+    title = "Evolución de neutrófilos por paciente",
+    subtitle = "Color según 1ª evaluación",
+    x = "Momento",
+    y = "Valor neutrófilos",
+    color = "1ª evaluación"
+  )
+
+ggplotly(g2, tooltip = "text")
+
+
+# =====================
+# MATRIZ DE CORRELACIÓN
+# =====================
+df_corr <- data %>% select(all_of(vars_Neutro))
+
+ggcorr(df_corr,
+       label = TRUE,
+       label_round = 2,
+       label_size = 4,
+       low = "steelblue", high = "red",
+       name = "Correlación") +
+  ggtitle("Matriz de correlación (neutrófilos)")
+```
+
+## Linfocitos
+
+```{r}
+# Variables longitudinales de linfocitos
+vars_Lympho <- c("Total_lymphocytes", "Lymphocytes_1C", "Lymphocytes_2C", "Lymphocytes_1eval")
+
+# =====================
+# GRÁFICO 1 - Color por Mejor_resp
+# =====================
+df_long1 <- data %>%
+  select(Patient_ID, Mejor_resp, all_of(vars_Lympho)) %>%
+  pivot_longer(cols = all_of(vars_Lympho), names_to = "Momento", values_to = "Valor") %>%
+  mutate(Momento = factor(Momento, levels = vars_Lympho))
+
+g1 <- ggplot(df_long1, aes(
+  x = Momento,
+  y = Valor,
+  group = Patient_ID,
+  color = as.factor(Mejor_resp),
+  text = paste(
+    "Paciente:", Patient_ID,
+    "<br>Momento:", Momento,
+    "<br>Valor:", round(Valor, 2),
+    "<br>Mejor respuesta:", Mejor_resp
+  )
+)) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  theme_minimal() +
+  labs(
+    title = "Evolución de linfocitos por paciente",
+    subtitle = "Color según mejor respuesta al tratamiento",
+    x = "Momento",
+    y = "Valor linfocitos",
+    color = "Mejor respuesta"
+  )
+
+ggplotly(g1, tooltip = "text")
+
+
+# =====================
+# GRÁFICO 2 - Color por First_eval
+# =====================
+df_long2 <- data %>%
+  select(Patient_ID, First_eval, all_of(vars_Lympho)) %>%
+  pivot_longer(cols = all_of(vars_Lympho), names_to = "Momento", values_to = "Valor") %>%
+  mutate(Momento = factor(Momento, levels = vars_Lympho))
+
+g2 <- ggplot(df_long2, aes(
+  x = Momento,
+  y = Valor,
+  group = Patient_ID,
+  color = as.factor(First_eval),
+  text = paste(
+    "Paciente:", Patient_ID,
+    "<br>Momento:", Momento,
+    "<br>Valor:", round(Valor, 2),
+    "<br>1ª evaluación:", First_eval
+  )
+)) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  theme_minimal() +
+  labs(
+    title = "Evolución de linfocitos por paciente",
+    subtitle = "Color según 1ª evaluación",
+    x = "Momento",
+    y = "Valor linfocitos",
+    color = "1ª evaluación"
+  )
+
+ggplotly(g2, tooltip = "text")
+
+
+# =====================
+# MATRIZ DE CORRELACIÓN
+# =====================
+df_corr <- data %>% select(all_of(vars_Lympho))
+
+ggcorr(df_corr,
+       label = TRUE,
+       label_round = 2,
+       label_size = 4,
+       low = "steelblue", high = "red",
+       name = "Correlación") +
+  ggtitle("Matriz de correlación (linfocitos)")
+```
+
+## Plaquetas
+
+```{r}
+# Variables longitudinales de plaquetas
+vars_Platelets <- c("Platelets", "Platelets_1C", "Platelets_2C", "Platelets_1eval")
+
+# =====================
+# GRÁFICO 1 - Color por Mejor_resp
+# =====================
+df_long1 <- data %>%
+  select(Patient_ID, Mejor_resp, all_of(vars_Platelets)) %>%
+  pivot_longer(cols = all_of(vars_Platelets), names_to = "Momento", values_to = "Valor") %>%
+  mutate(Momento = factor(Momento, levels = vars_Platelets))
+
+g1 <- ggplot(df_long1, aes(
+  x = Momento,
+  y = Valor,
+  group = Patient_ID,
+  color = as.factor(Mejor_resp),
+  text = paste(
+    "Paciente:", Patient_ID,
+    "<br>Momento:", Momento,
+    "<br>Valor:", round(Valor, 2),
+    "<br>Mejor respuesta:", Mejor_resp
+  )
+)) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  theme_minimal() +
+  labs(
+    title = "Evolución de plaquetas por paciente",
+    subtitle = "Color según mejor respuesta al tratamiento",
+    x = "Momento",
+    y = "Valor plaquetas",
+    color = "Mejor respuesta"
+  )
+
+ggplotly(g1, tooltip = "text")
+
+
+# =====================
+# GRÁFICO 2 - Color por First_eval
+# =====================
+df_long2 <- data %>%
+  select(Patient_ID, First_eval, all_of(vars_Platelets)) %>%
+  pivot_longer(cols = all_of(vars_Platelets), names_to = "Momento", values_to = "Valor") %>%
+  mutate(Momento = factor(Momento, levels = vars_Platelets))
+
+g2 <- ggplot(df_long2, aes(
+  x = Momento,
+  y = Valor,
+  group = Patient_ID,
+  color = as.factor(First_eval),
+  text = paste(
+    "Paciente:", Patient_ID,
+    "<br>Momento:", Momento,
+    "<br>Valor:", round(Valor, 2),
+    "<br>1ª evaluación:", First_eval
+  )
+)) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  theme_minimal() +
+  labs(
+    title = "Evolución de plaquetas por paciente",
+    subtitle = "Color según 1ª evaluación",
+    x = "Momento",
+    y = "Valor plaquetas",
+    color = "1ª evaluación"
+  )
+
+ggplotly(g2, tooltip = "text")
+
+
+# =====================
+# MATRIZ DE CORRELACIÓN
+# =====================
+df_corr <- data %>% select(all_of(vars_Platelets))
+
+ggcorr(df_corr,
+       label = TRUE,
+       label_round = 2,
+       label_size = 4,
+       low = "steelblue", high = "red",
+       name = "Correlación") +
+  ggtitle("Matriz de correlación (plaquetas)")
+```
+
+## NLR
+
+```{r}
+# Variables longitudinales de NLR
+vars_NLR <- c("NLR_pre", "NLR_1C", "NLR_2C", "NLR_1eval")
+
+# =====================
+# GRÁFICO 1 - Color por Mejor_resp
+# =====================
+df_long1 <- data %>%
+  select(Patient_ID, Mejor_resp, all_of(vars_NLR)) %>%
+  pivot_longer(cols = all_of(vars_NLR), names_to = "Momento", values_to = "Valor") %>%
+  mutate(Momento = factor(Momento, levels = vars_NLR))
+
+g1 <- ggplot(df_long1, aes(
+  x = Momento,
+  y = Valor,
+  group = Patient_ID,
+  color = as.factor(Mejor_resp),
+  text = paste(
+    "Paciente:", Patient_ID,
+    "<br>Momento:", Momento,
+    "<br>Valor:", round(Valor, 2),
+    "<br>Mejor respuesta:", Mejor_resp
+  )
+)) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  theme_minimal() +
+  labs(
+    title = "Evolución del NLR por paciente",
+    subtitle = "Color según mejor respuesta al tratamiento",
+    x = "Momento",
+    y = "Valor NLR",
+    color = "Mejor respuesta"
+  )
+
+ggplotly(g1, tooltip = "text")
+
+
+# =====================
+# GRÁFICO 2 - Color por First_eval
+# =====================
+df_long2 <- data %>%
+  select(Patient_ID, First_eval, all_of(vars_NLR)) %>%
+  pivot_longer(cols = all_of(vars_NLR), names_to = "Momento", values_to = "Valor") %>%
+  mutate(Momento = factor(Momento, levels = vars_NLR))
+
+g2 <- ggplot(df_long2, aes(
+  x = Momento,
+  y = Valor,
+  group = Patient_ID,
+  color = as.factor(First_eval),
+  text = paste(
+    "Paciente:", Patient_ID,
+    "<br>Momento:", Momento,
+    "<br>Valor:", round(Valor, 2),
+    "<br>1ª evaluación:", First_eval
+  )
+)) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  theme_minimal() +
+  labs(
+    title = "Evolución del NLR por paciente",
+    subtitle = "Color según 1ª evaluación",
+    x = "Momento",
+    y = "Valor NLR",
+    color = "1ª evaluación"
+  )
+
+ggplotly(g2, tooltip = "text")
+
+
+# =====================
+# MATRIZ DE CORRELACIÓN
+# =====================
+df_corr <- data %>% select(all_of(vars_NLR))
+
+ggcorr(df_corr,
+       label = TRUE,
+       label_round = 2,
+       label_size = 4,
+       low = "steelblue", high = "red",
+       name = "Correlación") +
+  ggtitle("Matriz de correlación (NLR)")
+```
+
+Podriamos guardar NLR_pre y resumir el resto, ya que la diferencia es significativa, no tienen casi correlación.
+
+## PLR
+
+```{r}
+# Variables longitudinales de PLR
+vars_PLR <- c("PLR_pre", "PLR_1C", "PLR_2C", "PLR_1eval")
+
+# =====================
+# GRÁFICO 1 - Color por Mejor_resp
+# =====================
+df_long1 <- data %>%
+  select(Patient_ID, Mejor_resp, all_of(vars_PLR)) %>%
+  pivot_longer(cols = all_of(vars_PLR), names_to = "Momento", values_to = "Valor") %>%
+  mutate(Momento = factor(Momento, levels = vars_PLR))
+
+g1 <- ggplot(df_long1, aes(
+  x = Momento,
+  y = Valor,
+  group = Patient_ID,
+  color = as.factor(Mejor_resp),
+  text = paste(
+    "Paciente:", Patient_ID,
+    "<br>Momento:", Momento,
+    "<br>Valor:", round(Valor, 2),
+    "<br>Mejor respuesta:", Mejor_resp
+  )
+)) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  theme_minimal() +
+  labs(
+    title = "Evolución del PLR por paciente",
+    subtitle = "Color según mejor respuesta al tratamiento",
+    x = "Momento",
+    y = "Valor PLR",
+    color = "Mejor respuesta"
+  )
+
+ggplotly(g1, tooltip = "text")
+
+
+# =====================
+# GRÁFICO 2 - Color por First_eval
+# =====================
+df_long2 <- data %>%
+  select(Patient_ID, First_eval, all_of(vars_PLR)) %>%
+  pivot_longer(cols = all_of(vars_PLR), names_to = "Momento", values_to = "Valor") %>%
+  mutate(Momento = factor(Momento, levels = vars_PLR))
+
+g2 <- ggplot(df_long2, aes(
+  x = Momento,
+  y = Valor,
+  group = Patient_ID,
+  color = as.factor(First_eval),
+  text = paste(
+    "Paciente:", Patient_ID,
+    "<br>Momento:", Momento,
+    "<br>Valor:", round(Valor, 2),
+    "<br>1ª evaluación:", First_eval
+  )
+)) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  theme_minimal() +
+  labs(
+    title = "Evolución del PLR por paciente",
+    subtitle = "Color según 1ª evaluación",
+    x = "Momento",
+    y = "Valor PLR",
+    color = "1ª evaluación"
+  )
+
+ggplotly(g2, tooltip = "text")
+
+
+# =====================
+# MATRIZ DE CORRELACIÓN
+# =====================
+df_corr <- data %>% select(all_of(vars_PLR))
+
+ggcorr(df_corr,
+       label = TRUE,
+       label_round = 2,
+       label_size = 4,
+       low = "steelblue", high = "red",
+       name = "Correlación") +
+  ggtitle("Matriz de correlación (PLR)")
+```
+
+Igual que NLR, podemos guardar la de prep y resumir el resto.
+
+## PNI
+
+```{r}
+# Variables longitudinales de PNI
+vars_PNI <- c("PNI_pre", "PNI_1C", "PNI_2C", "PNI_1eval")
+
+# =====================
+# GRÁFICO 1 - Color por Mejor_resp
+# =====================
+df_long1 <- data %>%
+  select(Patient_ID, Mejor_resp, all_of(vars_PNI)) %>%
+  pivot_longer(cols = all_of(vars_PNI), names_to = "Momento", values_to = "Valor") %>%
+  mutate(Momento = factor(Momento, levels = vars_PNI))
+
+g1 <- ggplot(df_long1, aes(
+  x = Momento,
+  y = Valor,
+  group = Patient_ID,
+  color = as.factor(Mejor_resp),
+  text = paste(
+    "Paciente:", Patient_ID,
+    "<br>Momento:", Momento,
+    "<br>Valor:", round(Valor, 2),
+    "<br>Mejor respuesta:", Mejor_resp
+  )
+)) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  theme_minimal() +
+  labs(
+    title = "Evolución del PNI por paciente",
+    subtitle = "Color según mejor respuesta al tratamiento",
+    x = "Momento",
+    y = "Valor PNI",
+    color = "Mejor respuesta"
+  )
+
+ggplotly(g1, tooltip = "text")
+
+
+# =====================
+# GRÁFICO 2 - Color por First_eval
+# =====================
+df_long2 <- data %>%
+  select(Patient_ID, First_eval, all_of(vars_PNI)) %>%
+  pivot_longer(cols = all_of(vars_PNI), names_to = "Momento", values_to = "Valor") %>%
+  mutate(Momento = factor(Momento, levels = vars_PNI))
+
+g2 <- ggplot(df_long2, aes(
+  x = Momento,
+  y = Valor,
+  group = Patient_ID,
+  color = as.factor(First_eval),
+  text = paste(
+    "Paciente:", Patient_ID,
+    "<br>Momento:", Momento,
+    "<br>Valor:", round(Valor, 2),
+    "<br>1ª evaluación:", First_eval
+  )
+)) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  theme_minimal() +
+  labs(
+    title = "Evolución del PNI por paciente",
+    subtitle = "Color según 1ª evaluación",
+    x = "Momento",
+    y = "Valor PNI",
+    color = "1ª evaluación"
+  )
+
+ggplotly(g2, tooltip = "text")
+
+
+# =====================
+# MATRIZ DE CORRELACIÓN
+# =====================
+df_corr <- data %>% select(all_of(vars_PNI))
+
+ggcorr(df_corr,
+       label = TRUE,
+       label_round = 2,
+       label_size = 4,
+       low = "steelblue", high = "red",
+       name = "Correlación") +
+  ggtitle("Matriz de correlación (PNI)") 
+```
+
+Tenemos a PNI_1C como un punto intermedio, en cuanto a PNI_2C y PNI_1eval, la correlación es alta.
+
+## SII
+
+```{r}
+# Variables longitudinales de SII
+vars_SII <- c("SII_pre", "SII_1C", "SII_2C", "SII_1eval")
+
+# =====================
+# GRÁFICO 1 - Color por Mejor_resp
+# =====================
+df_long1 <- data %>%
+  select(Patient_ID, Mejor_resp, all_of(vars_SII)) %>%
+  pivot_longer(cols = all_of(vars_SII), names_to = "Momento", values_to = "Valor") %>%
+  mutate(Momento = factor(Momento, levels = vars_SII))
+
+g1 <- ggplot(df_long1, aes(
+  x = Momento,
+  y = Valor,
+  group = Patient_ID,
+  color = as.factor(Mejor_resp),
+  text = paste(
+    "Paciente:", Patient_ID,
+    "<br>Momento:", Momento,
+    "<br>Valor:", round(Valor, 2),
+    "<br>Mejor respuesta:", Mejor_resp
+  )
+)) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  theme_minimal() +
+  labs(
+    title = "Evolución del SII por paciente",
+    subtitle = "Color según mejor respuesta al tratamiento",
+    x = "Momento",
+    y = "Valor SII",
+    color = "Mejor respuesta"
+  )
+
+ggplotly(g1, tooltip = "text")
+
+
+# =====================
+# GRÁFICO 2 - Color por First_eval
+# =====================
+df_long2 <- data %>%
+  select(Patient_ID, First_eval, all_of(vars_SII)) %>%
+  pivot_longer(cols = all_of(vars_SII), names_to = "Momento", values_to = "Valor") %>%
+  mutate(Momento = factor(Momento, levels = vars_SII))
+
+g2 <- ggplot(df_long2, aes(
+  x = Momento,
+  y = Valor,
+  group = Patient_ID,
+  color = as.factor(First_eval),
+  text = paste(
+    "Paciente:", Patient_ID,
+    "<br>Momento:", Momento,
+    "<br>Valor:", round(Valor, 2),
+    "<br>1ª evaluación:", First_eval
+  )
+)) +
+  geom_line(alpha = 0.7) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  theme_minimal() +
+  labs(
+    title = "Evolución del SII por paciente",
+    subtitle = "Color según 1ª evaluación",
+    x = "Momento",
+    y = "Valor SII",
+    color = "1ª evaluación"
+  )
+
+ggplotly(g2, tooltip = "text")
+
+
+# =====================
+# MATRIZ DE CORRELACIÓN
+# =====================
+df_corr <- data %>% select(all_of(vars_SII))
+
+ggcorr(df_corr,
+       label = TRUE,
+       label_round = 2,
+       label_size = 4,
+       low = "steelblue", high = "red",
+       name = "Correlación") +
+  ggtitle("Matriz de correlación (SII)")
+```
+
+Igual que con las otras, variables, SII_prep no muestra una clara correlación, en cambio, SII_1C, SII\_*2C, SII\_*1eval se podrían resumir en una sola variable.
+
+```{r}
+# Lista de biomarcadores base (sin sufijos)
+biomarcadores <- c("SII", "PLR", "NLR", "Hemoglobin", "Lymphocytes", "Neutrophils", "Platelets", "Albumin", "Protein")
+
+# Momentos de tiempo disponibles
+tiempos <- c("0", "1eval", "1C", "2C")
+
+# Generación de variables dinámicas
+for (var in biomarcadores) {
+  # Asegurar que todas las columnas necesarias existen
+  cols <- paste0(var, "_", tiempos)
+  if (all(cols %in% colnames(datos))) {
+    
+    # slope: 1eval - 0
+    datos[[paste0(var, "_slope")]] <- datos[[paste0(var, "_1eval")]] - datos[[paste0(var, "_0")]]
+    
+    # diff_0_1eval
+    datos[[paste0(var, "_diff_0_1eval")]] <- datos[[paste0(var, "_1eval")]] - datos[[paste0(var, "_0")]]
+    
+    # diff_1C_2C
+    datos[[paste0(var, "_diff_1C_2C")]] <- datos[[paste0(var, "_2C")]] - datos[[paste0(var, "_1C")]]
+    
+    # diff_0_1C
+    datos[[paste0(var, "_diff_0_1C")]] <- datos[[paste0(var, "_1C")]] - datos[[paste0(var, "_0")]]
+    
+    # diff_1C_1eval
+    datos[[paste0(var, "_diff_1C_1eval")]] <- datos[[paste0(var, "_1eval")]] - datos[[paste0(var, "_1C")]]
+    
+    # diff_2C_1eval
+    datos[[paste0(var, "_diff_2C_1eval")]] <- datos[[paste0(var, "_2C")]] - datos[[paste0(var, "_1eval")]]
+    
+    # diff_1eval_2C (sinónimos por si acaso)
+    datos[[paste0(var, "_diff_1eval_2C")]] <- datos[[paste0(var, "_2C")]] - datos[[paste0(var, "_1eval")]]
+    
+    # media y cv (coef. variación)
+    matriz_temporal <- as.matrix(datos[, cols])
+    datos[[paste0(var, "_media")]] <- apply(matriz_temporal, 1, mean, na.rm = TRUE)
+    datos[[paste0(var, "_cv")]] <- apply(matriz_temporal, 1, function(x) sd(x, na.rm = TRUE) / mean(x, na.rm = TRUE))
+  }
+}
+```
+
+# CORRELACIÓN NUEVAS VARIABLES
+
+```{r}
+library(openxlsx)
+data <- read.xlsx("datosLimpio.xlsx")
+```
+
+```{r}
+library(dplyr)
+library(stringr)
+
+# Lista de variables que quieres analizar (tal como la definiste)
+vars_biomarcadores <- c(
+  "Albumin_media", "Albumin_cv", "Albumin_slope", "Albumin_diff_0_1C", "Albumin_diff_1C_2C", "Albumin_diff_2C_1eval", "Albumin_diff_0_1eval",
+  "Protein_media", "Protein_cv", "Protein_slope", "Protein_diff_0_1C", "Protein_diff_1C_2C", "Protein_diff_2C_1eval", "Protein_diff_0_1eval",
+  "Hemoglobin_media", "Hemoglobin_cv", "Hemoglobin_slope", "Hemoglobin_diff_0_1C", "Hemoglobin_diff_1C_2C", "Hemoglobin_diff_2C_1eval", "Hemoglobin_diff_0_1eval",
+  "Leukocytes_media", "Leukocytes_cv", "Leukocytes_slope", "Leukocytes_diff_0_1C", "Leukocytes_diff_1C_2C", "Leukocytes_diff_2C_1eval", "Leukocytes_diff_0_1eval",
+  "Neutrophils_media", "Neutrophils_cv", "Neutrophils_slope", "Neutrophils_diff_0_1C", "Neutrophils_diff_1C_2C", "Neutrophils_diff_2C_1eval", "Neutrophils_diff_0_1eval",
+  "Lymphocytes_media", "Lymphocytes_cv", "Lymphocytes_slope", "Lymphocytes_diff_0_1C", "Lymphocytes_diff_1C_2C", "Lymphocytes_diff_2C_1eval", "Lymphocytes_diff_0_1eval",
+  "Platelets_media", "Platelets_cv", "Platelets_slope", "Platelets_diff_0_1C", "Platelets_diff_1C_2C", "Platelets_diff_2C_1eval", "Platelets_diff_0_1eval",
+  "NLR_media", "NLR_cv", "NLR_slope", "NLR_diff_0_1C", "NLR_diff_1C_2C", "NLR_diff_2C_1eval", "NLR_diff_0_1eval",
+  "PLR_media", "PLR_cv", "PLR_slope", "PLR_diff_0_1C", "PLR_diff_1C_2C", "PLR_diff_2C_1eval", "PLR_diff_0_1eval",
+  "PNI_media", "PNI_cv", "PNI_slope", "PNI_diff_0_1C", "PNI_diff_1C_2C", "PNI_diff_2C_1eval", "PNI_diff_0_1eval",
+  "SII_media", "SII_cv", "SII_slope", "SII_diff_0_1C", "SII_diff_1C_2C", "SII_diff_2C_1eval", "SII_diff_0_1eval"
+)
+
+# Nombres base (SII, PLR, etc.)
+nombres_base <- unique(str_extract(vars_biomarcadores, "^[^_]+"))
+
+# Inicializar tabla de resultados
+df_cor <- data.frame(Variable_1 = character(), Variable_2 = character(), Correlacion = numeric(), Grupo = character())
+
+# Bucle por cada grupo de variables
+for (nombre in nombres_base) {
+  vars_grupo <- vars_biomarcadores[str_detect(vars_biomarcadores, paste0("^", nombre, "_"))]
+  df_temp <- data %>% select(any_of(vars_grupo))
+  
+  if (ncol(df_temp) >= 2) {
+    m_corr <- cor(df_temp, use = "complete.obs")
+    m_corr[lower.tri(m_corr, diag = TRUE)] <- NA  # Solo superior
+    
+    df_melt <- as.data.frame(as.table(m_corr)) %>%
+      filter(!is.na(Freq)) %>%
+      rename(Variable_1 = Var1, Variable_2 = Var2, Correlacion = Freq) %>%
+      mutate(Grupo = nombre)
+    
+    df_cor <- bind_rows(df_cor, df_melt)
+  }
+}
+
+# Resultado ordenado
+df_cor <- df_cor %>% arrange(desc(abs(Correlacion)))
+print(df_cor)
+
+
+```
+
+```{r}
+library(writexl)
+
+# Exportar el dataframe a un archivo Excel
+write_xlsx(df_cor, path = "correlaciones_biomarcadores.xlsx")
+```

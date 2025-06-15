@@ -1,0 +1,165 @@
+---
+title: "RF"
+author: "Manuel Rocamora Valenti"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Instala si no los tienes
+#install.packages(c("readxl", "randomForest", "caret", "fastshap", "dplyr"))
+
+# Cargar librerías
+library(openxlsx)
+library(randomForest)
+library(caret)
+library(fastshap)
+library(dplyr)
+```
+
+```{r}
+# Leer Excel
+data <- read.xlsx("datos_PCA.xlsx")
+```
+
+------------------------------------------------------------------------
+
+```{r}
+library(dplyr)
+library(caret)
+library(randomForest)
+
+# 1. Preparar X e Y
+Y <- as.factor(data$X1ª_eval)
+
+X <- data %>%
+  select(-c('X1ª_eval', 'Mejor_resp')) %>%
+  select(where(is.numeric)) %>%
+  as.data.frame()  # convertir a data.frame por si train lo necesita
+
+# 2. Definir grid de hiperparámetros
+grid_rf <- expand.grid(mtry = seq(2, floor(sqrt(ncol(X)) * 2), by = 1))
+
+# 3. Control de validación cruzada tipo LOO
+ctrl_loo <- trainControl(
+  method = "LOOCV",
+  classProbs = TRUE,
+  savePredictions = "final"
+)
+
+# 4. Entrenamiento optimizado
+set.seed(123)
+modelo_rf_tuned <- train(
+  x = X,
+  y = Y,
+  method = "rf",
+  trControl = ctrl_loo,
+  tuneGrid = grid_rf,
+  importance = TRUE,
+  ntree = 500
+)
+
+# 5. Mejor parámetro y rendimiento
+print(modelo_rf_tuned)
+
+# 6. Confusion matrix
+confusionMatrix(modelo_rf_tuned$pred$pred, modelo_rf_tuned$pred$obs)
+```
+
+------------------------------------------------------------------------
+
+```{r}
+# Confusion matrix y métricas
+confusionMatrix(modelo_rf_tuned$pred$pred, modelo_rf_tuned$pred$obs)
+```
+
+------------------------------------------------------------------------
+
+```{r}
+# Crear función predictora
+predictor <- function(object, newdata) {
+  predict(object, newdata = newdata, type = "prob")
+}
+
+# Calcular SHAP para cada clase (ejemplo para clase "PE")
+shap_vals <- fastshap::explain(
+  object = modelo_rf_tuned$finalModel,
+  feature_names = names(X),
+  X = X,
+  pred_wrapper = function(object, newdata) {
+    predict(object, newdata, type = "prob")[, "PE"]  # cambia "PE" si necesitas otra clase
+  },
+  nsim = 100  # número de permutaciones SHAP (ajustable)
+)
+
+# Visualizar importancia SHAP promedio
+mean_shap <- colMeans(abs(shap_vals))
+mean_shap <- sort(mean_shap, decreasing = TRUE)
+
+# Mostrar top 20
+print(head(mean_shap, 20))
+
+```
+
+------------------------------------------------------------------------
+
+```{r}
+library(ggplot2)
+
+df_shap <- data.frame(
+  Variable = names(mean_shap),
+  SHAP_Importance = mean_shap
+)
+
+ggplot(head(df_shap, 20), aes(x = reorder(Variable, SHAP_Importance), y = SHAP_Importance)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Importancia SHAP (Top 20)", x = "Variable", y = "SHAP promedio") +
+  theme_minimal()
+```
+
+# Selección con SHAP
+
+```{r}
+# Seleccionar las N variables más importantes (por ejemplo, top 20)
+top_vars <- head(df_shap[order(-df_shap$SHAP_Importance), "Variable"], 30)
+
+# Crear un nuevo X solo con esas variables
+X_shap <- data[, top_vars]
+
+# Asegurarse de que es numérico
+X_shap <- X_shap[, sapply(X_shap, is.numeric)]
+X_shap <- as.data.frame(X_shap)
+
+# Variable respuesta (ya transformada si hiciste lo de PS → EE)
+Y <- as.factor(data$`X1ª_eval`)
+
+
+# Control de validación cruzada Leave-One-Out
+ctrl_loo <- trainControl(
+  method = "LOOCV",
+  classProbs = TRUE,
+  savePredictions = "final"
+)
+
+# Entrenamiento con las variables SHAP seleccionadas
+set.seed(123)
+modelo_rf_shap <- train(
+  x = X_shap,
+  y = Y,
+  method = "rf",
+  trControl = ctrl_loo,
+  importance = TRUE
+)
+
+# Mostrar resumen
+print(modelo_rf_shap)
+
+confusionMatrix(modelo_rf_shap$pred$pred, modelo_rf_shap$pred$obs)
+```
+
+El modelo Random Forest entrenado con las 30 variables seleccionadas por SHAP presentó un rendimiento inferior al azar (accuracy = 38.2%, kappa = --0.058), sin capacidad discriminativa válida. Este resultado indica que, en este conjunto de datos, la selección de variables basada únicamente en SHAP no garantiza un modelo robusto. Se confirma la importancia de combinar criterios de interpretabilidad con evaluación empírica del rendimiento. El modelo PLS-DA con selección por VIP sigue siendo el más equilibrado en términos de rendimiento y explicabilidad.

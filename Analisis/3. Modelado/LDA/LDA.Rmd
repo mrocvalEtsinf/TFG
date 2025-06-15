@@ -1,0 +1,287 @@
+---
+title: "LDA"
+author: "Manuel Rocamora Valenti"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Cargar librerías necesarias
+library(openxlsx)
+library(dplyr)
+library(caret)
+library(MASS)
+
+```
+
+CARGA Y PREPARACIÓN DE LOS DATOS
+
+```{r}
+# Cargar datos desde Excel
+data <- read.xlsx("datos_PCA.xlsx")
+
+# Convertir variable respuesta a factor
+data$X1ª_eval <- as.factor(data$X1ª_eval)
+
+# Eliminar variables de respuesta no deseadas
+X <- data[, !(names(data) %in% c("X1ª_eval", "Mejor_resp"))]
+
+# Quedarnos solo con variables numéricas
+X <- X[, sapply(X, is.numeric)]
+
+# Combinar con Y
+df_lda <- data.frame(Y = data$X1ª_eval, X)
+```
+
+ENTRENAMIENTO MODELO LDA CON LOO
+
+```{r}
+set.seed(123)
+
+train_control <- trainControl(
+  method = "LOOCV",        # Leave-One-Out CV
+  classProbs = TRUE,       # Activar probabilidades
+  savePredictions = "final"
+)
+
+modelo_lda <- train(
+  Y ~ ., 
+  data = df_lda,
+  method = "lda",
+  trControl = train_control
+)
+```
+
+EVALUACIÓN DEL MODELO
+
+```{r}
+# Resumen de métricas
+print(modelo_lda)
+
+# Matriz de confusión
+confusionMatrix(modelo_lda$pred$pred, modelo_lda$pred$obs)
+```
+
+GRÁFICO DE FUNCIONES DISCRIMINANTES
+
+```{r}
+# Entrenar LDA manualmente para obtener los scores
+modelo_lda_manual <- lda(Y ~ ., data = df_lda)
+
+# Proyectar los datos en las funciones discriminantes
+lda_pred <- predict(modelo_lda_manual)
+
+# Crear data.frame con los scores
+lda_scores <- data.frame(
+  LD1 = lda_pred$x[,1],
+  LD2 = lda_pred$x[,2],
+  Clase = df_lda$Y
+)
+
+# Plot
+library(ggplot2)
+
+ggplot(lda_scores, aes(x = LD1, y = LD2, color = Clase)) +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_ellipse() +
+  theme_minimal(base_size = 14) +
+  labs(title = "LDA: representación de funciones discriminantes",
+       x = "LD1", y = "LD2")
+```
+
+IMPORTANCIA DE LAS VARIABLES
+
+```{r}
+# Coeficientes de las funciones discriminantes
+coef_lda <- as.data.frame(modelo_lda_manual$scaling)
+coef_lda$variable <- rownames(coef_lda)
+coef_lda <- coef_lda[order(abs(coef_lda$LD1), decreasing = TRUE), ]
+head(coef_lda, 20)  # Top 20
+```
+
+ENTRENAMIENTO CON SELECCIÓN DE VARIABLES
+
+SELECCIONAMOS LAS VARIABLES
+
+```{r}
+# Coeficientes ordenados por importancia en LD1
+coef_lda <- as.data.frame(modelo_lda_manual$scaling)
+coef_lda$variable <- rownames(coef_lda)
+
+# Ordenar por contribución absoluta a LD1
+coef_lda <- coef_lda[order(abs(coef_lda$LD1), decreasing = TRUE), ]
+
+# Seleccionar las top 20 variables
+top_vars_lda <- head(coef_lda$variable, 20)
+
+# Preparar nuevo data.frame con Y + top 20 variables
+df_lda_top <- data.frame(Y = data$X1ª_eval, data[, top_vars_lda])
+```
+
+REENTRENAMIENTO DEL MODELO
+
+```{r}
+set.seed(123)
+
+train_control <- trainControl(
+  method = "LOOCV",
+  classProbs = TRUE,
+  savePredictions = "final"
+)
+
+modelo_lda_top <- train(
+  Y ~ ., 
+  data = df_lda_top,
+  method = "lda",
+  trControl = train_control
+)
+```
+
+EVALUACIÓN
+
+```{r}
+# Métricas de rendimiento
+print(modelo_lda_top)
+
+# Matriz de confusión
+confusionMatrix(modelo_lda_top$pred$pred, modelo_lda_top$pred$obs)
+```
+
+GRÁFICO DEL MODELO REDUCIDO
+
+```{r}
+# Entrenar LDA manual con solo top vars
+modelo_lda_top_manual <- lda(Y ~ ., data = df_lda_top)
+
+# Proyectar en funciones discriminantes
+lda_pred_top <- predict(modelo_lda_top_manual)
+
+lda_scores_top <- data.frame(
+  LD1 = lda_pred_top$x[,1],
+  LD2 = lda_pred_top$x[,2],
+  Clase = df_lda_top$Y
+)
+
+# Plot
+ggplot(lda_scores_top, aes(x = LD1, y = LD2, color = Clase)) +
+  geom_point(size = 3, alpha = 0.8) +
+  stat_ellipse() +
+  theme_minimal(base_size = 14) +
+  labs(title = "LDA reducido: top 20 variables",
+       x = "LD1", y = "LD2")
+```
+
+```{r}
+# Librerías
+library(ggplot2)
+library(reshape2)
+library(viridis)
+
+coef_lda <- as.data.frame(modelo_lda_manual$scaling)
+coef_lda$variable <- rownames(coef_lda)
+coef_lda <- coef_lda[order(abs(coef_lda$LD1), decreasing = TRUE), ]
+top_vars <- head(coef_lda$variable, 20)
+X_top <- data[, top_vars]
+# Matriz de correlación
+corr_matrix <- cor(X_top, use = "pairwise.complete.obs")
+
+# Convertir a formato largo
+corr_df <- melt(corr_matrix)
+
+# Filtrar correlaciones altas y quitar la diagonal
+corr_df_fuerte <- subset(corr_df, abs(value) >= 0.6 & Var1 != Var2)
+
+# Gráfico con valores de correlación
+ggplot(corr_df_fuerte, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(value, 2)), size = 3, color = "white") +  # ← etiquetas
+  scale_fill_viridis(option = "C", limits = c(-1, 1)) +
+  theme_minimal(base_size = 13) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text.y = element_text(size = 11)) +
+  labs(title = "Correlaciones fuertes (≥ |0.9|) entre variables top LDA",
+       x = "", y = "", fill = "Correlación")
+```
+
+Con el objetivo de mejorar la estabilidad e interpretabilidad del modelo, se identificaron y eliminaron variables altamente correlacionadas que podían generar colinealidad en el análisis discriminante lineal.
+
+En concreto, se descartó Leukocytes_cv por su fuerte correlación con Neutrophils_cv, manteniéndose esta última al presentar mayor peso discriminante en las funciones LD1 y LD2.
+
+Del mismo modo, se eliminó Albumin_media por su relación directa con Hemoglobin_cv, variable que mostró una mayor capacidad de separación entre clases.
+
+Finalmente, se excluyó Stage debido a su redundancia con Cardiopathy, que resultó más informativa y clínicamente interpretable.
+
+A continuación se muestra el código actualizado para reentrenar el modelo LDA con estas variables excluidas y validación cruzada tipo Leave-One-Out (LOO):
+
+```{r}
+# Cargar librerías necesarias
+library(caret)
+library(MASS)
+
+# Crear nuevo dataset sin variables colineales
+vars_a_eliminar <- c("Leukocytes_cv", "Stage", "Albumin_media")
+
+# X: seleccionamos todas las variables numéricas menos las eliminadas y variables respuesta
+X_filtrado <- data[, !(names(data) %in% c("X1ª_eval", "Mejor_resp", vars_a_eliminar))]
+X_filtrado <- X_filtrado[, sapply(X_filtrado, is.numeric)]
+
+# Y: variable respuesta
+Y <- as.factor(data$`X1ª_eval`)
+
+# Construimos data.frame final
+df_lda_final <- data.frame(Y, X_filtrado)
+
+# Entrenamiento del modelo LDA con validación cruzada Leave-One-Out
+set.seed(123)
+
+modelo_lda_final <- train(
+  Y ~ .,
+  data = df_lda_final,
+  method = "lda",
+  trControl = trainControl(
+    method = "LOOCV",
+    classProbs = TRUE,
+    savePredictions = "final"
+  )
+)
+
+# Resultados
+print(modelo_lda_final)
+confusionMatrix(modelo_lda_final$pred$pred, modelo_lda_final$pred$obs)
+```
+
+VIP \> 1 PLS-DA
+
+```{r}
+library(openxlsx)
+
+# Cargar las variables VIP > 1 desde Excel
+vip_vars <- read.xlsx("VIP_mayor_1.xlsx")
+
+# Extraer nombres de variables
+vip_names <- vip_vars$variable
+
+# Preparar los datos con solo esas variables
+X_vip <- data[, vip_names]
+Y <- as.factor(data$X1ª_eval)
+df_vip <- data.frame(Y, X_vip)
+
+library(caret)
+
+set.seed(123)
+
+modelo_lda_vip <- train(
+  Y ~ ., 
+  data = df_vip,
+  method = "lda",
+  trControl = trainControl(method = "LOOCV", classProbs = TRUE, savePredictions = "final")
+)
+
+# Evaluar resultados
+print(modelo_lda_vip)
+confusionMatrix(modelo_lda_vip$pred$pred, modelo_lda_vip$pred$obs)
+```

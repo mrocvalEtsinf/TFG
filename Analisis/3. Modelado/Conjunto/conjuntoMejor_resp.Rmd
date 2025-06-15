@@ -1,0 +1,711 @@
+---
+title: "Conjunt"
+author: "Manuel Rocamora Valenti"
+date: '`r Sys.Date()`'
+output: html_document
+---
+
+# PLS-DA
+
+CARGAMOS LOS DATOS
+
+```{r}
+library(openxlsx)
+library(dplyr)
+library(fastDummies)
+library(ropls)
+library(ggplot2)
+library(ggrepel)
+library(caret)
+library(randomForest)
+
+data <- read.xlsx("datos_PCA.xlsx")
+```
+
+BUCLE PARA ESTIMAR ERROR LOO
+
+```{r}
+X <- data[, setdiff(names(data), c("X1ª_eval", "Mejor_resp"))]
+X <- X[, sapply(X, is.numeric)]
+Y <- as.factor(data$Mejor_resp)
+
+# Creamos un vector vacío para almacenar las predicciones
+mypred <- character(nrow(X))  # o factor() si prefieres
+names(mypred) <- rownames(X)
+
+# LOO
+for (i in 1:nrow(X)) {
+  # Creamos datos de entrenamiento sin la i-ésima fila
+  X_train <- X[-i, ]
+  Y_train <- Y[-i]
+  
+  # Modelo PLS-DA con entrenamiento
+  pls_model <- opls(X_train, Y_train, predI = 2, orthoI = 0)
+  
+  # Predicción de la muestra dejada fuera
+  X_test <- X[i, , drop = FALSE]
+  pred_i <- predict(pls_model, newdata = X_test)
+  
+  # Guardamos la predicción
+  mypred[i] <- as.character(pred_i)
+}
+
+# Convertimos a factor con los mismos niveles que Y
+mypred <- factor(mypred, levels = levels(Y))
+
+# Confusion matrix
+confusionMatrix(mypred, Y)
+```
+
+SIGNIFICACION ESTADÍSTICA DE LOS COEFICIENTES DEL MODELO PLS
+
+```{r}
+pvalJack <- function(pls, X, Y) {
+  k <- pls@summaryDF$pre
+  coefmod <- pls@coefficientMN
+  varnames <- rownames(coefmod)
+  classnames <- colnames(coefmod)
+
+  nvars <- length(varnames)
+  nclases <- length(classnames)
+  nsamples <- nrow(X)
+
+  a <- array(NA, dim = c(nvars, nclases, nsamples),
+             dimnames = list(varnames, classnames, NULL))
+
+  for (i in 1:nsamples) {
+    X_train <- X[-i, , drop = FALSE]
+    Y_train <- Y[-i]
+
+    # Escalar solo X con medias del training
+    x_mean <- colMeans(X_train)
+    x_sd <- apply(X_train, 2, sd)
+    x_sd[x_sd == 0] <- 1
+
+    X_train_scaled <- scale(X_train, center = x_mean, scale = x_sd)
+
+    pls_loo <- suppressWarnings(opls(
+      X_train_scaled, Y_train,
+      scaleC = "none", predI = k,
+      crossvalI = 1, permI = 0
+    ))
+
+    coef_loo <- matrix(0, nrow = nvars, ncol = nclases,
+                       dimnames = list(varnames, classnames))
+
+    coef_tmp <- pls_loo@coefficientMN
+    rows <- intersect(rownames(coef_tmp), varnames)
+    cols <- intersect(colnames(coef_tmp), classnames)
+
+    if (length(rows) > 0 && length(cols) > 0) {
+      coef_loo[rows, cols] <- as.matrix(coef_tmp[rows, cols])
+    }
+
+    a[, , i] <- coef_loo
+  }
+
+  estjack <- sqrt(((nsamples - 1) / nsamples) * apply(
+    (a - array(coefmod, dim = dim(a)))^2, c(1, 2), sum))
+
+  tvals <- coefmod / estjack
+  pvals <- 2 * pt(abs(tvals), df = nsamples - 1, lower.tail = FALSE)
+
+  df <- data.frame(
+    variable = rep(varnames, times = nclases),
+    class = rep(classnames, each = nvars),
+    coef = as.vector(coefmod),
+    se = as.vector(estjack),
+    t = as.vector(tvals),
+    pvalue = as.vector(pvals)
+  )
+
+  return(df)
+}
+```
+
+```{r}
+pvalJack2 = function(pls, X, Y){
+  
+  # pls: modelo PLS generado con la librería ropls
+  # X, Y: Matrices de datos proporcionados al modelo PLS
+
+  k = pls@summaryDF$pre
+  coefmod = pls@coefficientMN
+  a=NULL
+  
+  X = scale(X, center = pls@xMeanVn, scale = pls@xSdVn)
+  Y = scale(Y, center = pls@yMeanVn, scale = pls@ySdVn)
+  
+  for (i in 1: nrow(X)) {
+    
+    pls.opls = suppressWarnings(ropls::opls(X[-i, ,drop=FALSE], Y[-i,,drop = FALSE], 
+                                            scaleC='none', predI=k,
+                                            info.txtC='none', fig.pdfC='none', 
+                                            crossvalI=1, permI = 0))
+    
+    if(nrow(pls.opls@coefficientMN)<nrow(coefmod)){
+      exclvar=setdiff(rownames(coefmod),rownames(pls.opls@coefficientMN))
+      b<-matrix(0,ncol=1,nrow = length(exclvar))
+      rownames(b)<-exclvar
+      pls.opls@coefficientMN=rbind(pls.opls@coefficientMN,b)
+      
+    }
+    order <- match(rownames(coefmod), rownames(pls.opls@coefficientMN))
+    plscoefficientMN <- pls.opls@coefficientMN[order, ]
+    a=cbind(a,plscoefficientMN)
+  }
+  
+  est = (a-matrix(rep(coefmod, ncol(a)), ncol = ncol(a)))^2
+  estjack = sqrt(((nrow(X)-1)/nrow(X)) * rowSums(est))
+  
+  pvalor = 2*pt(abs(coefmod/estjack), df = nrow(X)-1, lower.tail = FALSE)
+  
+  colnames(pvalor) = c('pvalue')
+  return(pvalor)
+}
+```
+
+P-Valores
+
+```{r}
+# ¡Importante! Y debe ser factor multiclase
+Y <- factor(data$Mejor_resp)
+
+pls_model <- opls(X, Y, predI = 2, orthoI = 0)
+pvalores_df <- pvalJack(pls_model, X, Y)
+
+if (is.factor(Y)) {
+  Y <- model.matrix(~ Y - 1)
+}
+pvalores_df2 = pvalJack2(pls_model, X, Y)
+
+# Ver resultados distintos
+summary(pvalores_df$pvalue)
+head(subset(pvalores_df, pvalue < 0.05))
+
+
+
+
+```
+
+```{r}
+barplot(sort(pls_model@vipVn, decreasing = TRUE), main = "VIP", las = 2)
+abline(h = 1, col = 2, lty = 2)
+```
+
+SELECCIONAMOS LAS VARIABLES QUE: VIP \>1 Y P-VALOR \< 0.05
+
+```{r}
+seleccionar_variables_significativas <- function(pval_df, vip_vector, alpha = 0.05, vip_cutoff = 1) {
+  # Convertimos a data.frame
+  vip_df <- data.frame(variable = names(vip_vector), VIP = as.numeric(vip_vector))
+
+  # Combinamos pvalores y VIP
+  merged <- merge(pval_df, vip_df, by = "variable", all.x = TRUE)
+
+  # Filtramos por criterios
+  seleccionadas <- subset(merged, pvalue < alpha & VIP > vip_cutoff)
+
+  # Ordenamos
+  seleccionadas <- seleccionadas[order(seleccionadas$class, seleccionadas$pvalue), ]
+
+  return(seleccionadas)
+}
+
+vars_seleccionadas <- seleccionar_variables_significativas(pvalores_df, pls_model@vipVn)
+
+print(vars_seleccionadas)
+
+# Usando la función anterior
+vars_importantes <- seleccionar_variables_significativas(pvalores_df, pls_model@vipVn)
+
+# Extraer solo nombres de variables únicos
+vars_finales <- unique(vars_importantes$variable)
+```
+
+MODELO
+
+```{r}
+X_filtrado <- X[, vars_finales]
+pls_model_refit <- opls(X_filtrado, Y, predI = 2, orthoI = 0)
+
+# Predicción LOO
+mypred <- rep(NA, nrow(X_filtrado))
+
+for (i in 1:nrow(X_filtrado)) {
+  X_train <- X_filtrado[-i, , drop = FALSE]
+  Y_train <- Y[-i]
+  X_test <- X_filtrado[i, , drop = FALSE]
+
+  model_i <- opls(X_train, Y_train, predI = 2, orthoI = 0,
+                  scaleC = "standard", crossvalI = 1, permI = 0)
+
+  pred_i <- predict(model_i, newdata = X_test)
+  mypred[i] <- as.character(pred_i)
+}
+
+# Confusion matrix
+caret::confusionMatrix(factor(mypred, levels = levels(Y)), Y)
+```
+
+# RF
+
+```{r}
+data <- read.xlsx("datos_PCA.xlsx")
+```
+
+```{r}
+X <- data[, setdiff(names(data), c("X1ª_eval", "Mejor_resp"))]
+X <- X[, sapply(X, is.numeric)]
+Y <- as.factor(data$Mejor_resp)
+
+# Vector para almacenar predicciones
+mypred <- character(nrow(X))
+names(mypred) <- rownames(X)
+
+library(randomForest)
+
+# LOO
+for (i in 1:nrow(X)) {
+  X_train <- X[-i, ]
+  Y_train <- Y[-i]
+  
+  rf_model <- randomForest(x = X_train, y = Y_train, ntree = 500, mtry = floor(sqrt(ncol(X_train))))
+  
+  X_test <- X[i, , drop = FALSE]
+  pred_i <- predict(rf_model, newdata = X_test)
+  
+  mypred[i] <- as.character(pred_i)
+}
+
+# Convertir a factor con niveles iguales a Y
+mypred <- factor(mypred, levels = levels(Y))
+
+confusionMatrix(mypred, Y)
+```
+
+## SHAP
+
+```{r}
+library(dplyr)
+library(caret)
+library(randomForest)
+
+# 1. Preparar X e Y
+Y <- as.factor(data$Mejor_resp)
+
+X <- data %>%
+  select(-c('X1ª_eval', 'Mejor_resp')) %>%
+  select(where(is.numeric)) %>%
+  as.data.frame()
+
+# 2. Definir grid de hiperparámetros
+grid_rf <- expand.grid(mtry = seq(2, floor(sqrt(ncol(X)) * 2), by = 1))
+
+# 3. Control de validación cruzada tipo LOO
+ctrl_loo <- trainControl(
+  method = "LOOCV",
+  classProbs = TRUE,
+  savePredictions = "final"
+)
+
+# 4. Entrenamiento optimizado
+set.seed(123)
+modelo_rf_tuned <- train(
+  x = X,
+  y = Y,
+  method = "rf",
+  trControl = ctrl_loo,
+  tuneGrid = grid_rf,
+  importance = TRUE,
+  ntree = 500
+)
+
+# 5. Mejor parámetro y rendimiento
+print(modelo_rf_tuned)
+
+
+# Crear función predictora
+predictor <- function(object, newdata) {
+  predict(object, newdata = newdata, type = "prob")
+}
+
+# Calcular SHAP para cada clase (ejemplo para clase "PE")
+shap_vals <- fastshap::explain(
+  object = modelo_rf_tuned$finalModel,
+  feature_names = names(X),
+  X = X,
+  pred_wrapper = function(object, newdata) {
+    predict(object, newdata, type = "prob")[, "PE"]  # cambia "PE" si necesitas otra clase
+  },
+  nsim = 100  # número de permutaciones SHAP (ajustable)
+)
+
+# Visualizar importancia SHAP promedio
+mean_shap <- colMeans(abs(shap_vals))
+mean_shap <- sort(mean_shap, decreasing = TRUE)
+
+# Mostrar top 20
+print(head(mean_shap, 20))
+
+library(ggplot2)
+
+df_shap <- data.frame(
+  Variable = names(mean_shap),
+  SHAP_Importance = mean_shap
+)
+
+ggplot(head(df_shap, 20), aes(x = reorder(Variable, SHAP_Importance), y = SHAP_Importance)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Importancia SHAP (Top 20)", x = "Variable", y = "SHAP promedio") +
+  theme_minimal()
+```
+
+```{r}
+
+# Seleccionar las N variables más importantes 
+top_vars <- head(df_shap[order(-df_shap$SHAP_Importance), "Variable"], 30)
+
+# Crear un nuevo X solo con esas variables
+X_shap <- data[, top_vars]
+
+# Asegurarse de que es numérico
+X_shap <- X_shap[, sapply(X_shap, is.numeric)]
+X_shap <- as.data.frame(X_shap)
+
+# Variable respuesta 
+Y <- as.factor(data$`Mejor_resp`)
+
+
+# Control de validación cruzada Leave-One-Out
+ctrl_loo <- trainControl(
+  method = "LOOCV",
+  classProbs = TRUE,
+  savePredictions = "final"
+)
+
+# Entrenamiento con las variables SHAP seleccionadas
+set.seed(123)
+modelo_rf_shap <- train(
+  x = X_shap,
+  y = Y,
+  method = "rf",
+  trControl = ctrl_loo,
+  importance = TRUE
+)
+
+# Mostrar resumen
+print(modelo_rf_shap)
+
+confusionMatrix(modelo_rf_shap$pred$pred, modelo_rf_shap$pred$obs)
+```
+
+# NAIVE BAYES
+
+```{r}
+# Cargar librerías necesarias
+library(e1071)     # Para naiveBayes
+library(dplyr)
+library(caret)     # Para confusionMatrix
+
+# 1. Preparar datos
+Y <- as.factor(data$Mejor_resp)
+
+# Seleccionar solo variables numéricas y eliminar columnas no deseadas
+X <- data %>%
+  dplyr::select(where(is.numeric)) %>%
+  dplyr::select(-matches("X1ª_eval")) %>%   # <- aquí se evita el problema del guion
+  as.data.frame()
+
+# Escalar manualmente
+X_scaled <- scale(X)
+
+# Inicializar vector de predicciones
+preds_loo <- factor(rep(NA, nrow(X_scaled)), levels = levels(Y))
+
+# 2. Validación Leave-One-Out (LOO)
+for (i in 1:nrow(X_scaled)) {
+  X_train <- X_scaled[-i, , drop = FALSE]
+  Y_train <- Y[-i]
+  X_test  <- X_scaled[i, , drop = FALSE]
+
+  modelo <- naiveBayes(x = X_train, y = Y_train)
+  pred <- predict(modelo, newdata = X_test)
+
+  preds_loo[i] <- pred
+}
+
+# 3. Evaluar rendimiento
+confusionMatrix(preds_loo, Y)
+```
+
+```{r}
+# 3. Calcular p-valores con ANOVA univariado
+pvals <- apply(X, 2, function(x) {
+  anova_result <- tryCatch({
+    summary(aov(x ~ Y))[[1]][["Pr(>F)"]][1]
+  }, error = function(e) NA)
+  return(anova_result)
+})
+
+# 4. Mostrar p-valores ordenados (opcional)
+pvals_ordenados <- sort(pvals)
+print(pvals_ordenados)
+
+# 5. Seleccionar variables con p < 0.05
+umbral <- 0.05
+vars_significativas <- names(pvals)[!is.na(pvals) & pvals < umbral]
+cat("Variables seleccionadas:", vars_significativas, "\n")
+
+# 6. Subconjunto de X con solo las variables significativas
+X_sig <- X[, vars_significativas]
+X_scaled <- scale(X_sig)
+
+# 7. Inicializar vector de predicciones
+preds <- factor(rep(NA, nrow(X_scaled)), levels = levels(Y))
+
+# 8. LOO manual con Naive Bayes
+for (i in 1:nrow(X_scaled)) {
+  X_train <- X_scaled[-i, , drop = FALSE]
+  Y_train <- Y[-i]
+  X_test <- X_scaled[i, , drop = FALSE]
+
+  modelo <- naiveBayes(x = X_train, y = Y_train)
+  preds[i] <- predict(modelo, newdata = X_test)
+}
+
+# 9. Evaluación del modelo
+resultado <- confusionMatrix(preds, Y)
+print(resultado)
+```
+
+# glmnet
+
+```{r}
+library(caret)
+library(glmnet)
+library(dplyr)
+
+# 1. Preparar datos
+Y <- as.factor(data$Mejor_resp)
+
+X <- data %>%
+  select(-c("X1ª_eval", "Mejor_resp")) %>%
+  select(where(is.numeric)) %>%
+  as.data.frame()
+
+# Eliminar variables con varianza casi nula
+nzv <- nearZeroVar(X, saveMetrics = TRUE)
+X <- X[, !nzv$zeroVar & !nzv$nzv]
+
+# 2. Control LOO
+ctrl_loo <- trainControl(
+  method = "LOOCV",
+  classProbs = TRUE,
+  savePredictions = "final"
+)
+
+# 3. Entrenamiento con glmnet multinomial
+set.seed(123)
+modelo_glmnet <- train(
+  x = X,
+  y = Y,
+  method = "glmnet",
+  family = "multinomial",
+  trControl = ctrl_loo,
+  preProcess = c("center", "scale"),
+  tuneLength = 10  # Prueba 10 valores de lambda y alpha
+)
+
+# 4. Resultados
+print(modelo_glmnet)
+confusionMatrix(modelo_glmnet$pred$pred, modelo_glmnet$pred$obs)
+```
+
+# SVM
+
+```{r}
+# Paquetes necesarios
+library(caret)
+library(e1071)
+library(dplyr)
+library(iml)
+
+# 1. Preparar datos
+Y <- as.factor(data$`Mejor_resp`)
+
+X <- data %>%
+  dplyr::select(-c("X1ª_eval", "Mejor_resp")) %>%
+  dplyr::select(where(is.numeric)) %>%
+  as.data.frame()
+
+# Quitar variables sin varianza
+nzv <- nearZeroVar(X, saveMetrics = TRUE)
+X <- X[, !nzv$zeroVar & !nzv$nzv]
+
+# Escalar
+X_scaled <- scale(X)
+
+# 2. Control de LOO
+ctrl_loo <- trainControl(
+  method = "LOOCV",
+  classProbs = TRUE,
+  savePredictions = "final"
+)
+
+# 3. Entrenamiento SVM Lineal con LOO
+set.seed(123)
+modelo_svm <- train(
+  x = X_scaled,
+  y = Y,
+  method = "svmLinear",
+  trControl = ctrl_loo,
+  preProcess = c("center", "scale"),
+  tuneLength = 5
+)
+
+# 4. Evaluación
+print(modelo_svm)
+confusionMatrix(modelo_svm$pred$pred, modelo_svm$pred$obs)
+```
+
+```{r}
+library(e1071)
+library(iml)
+library(caret)
+library(dplyr)
+
+# 1. Preparar los datos
+Y <- as.factor(data$`Mejor_resp`)
+X <- data %>%
+  dplyr::select(-c("X1ª_eval", "Mejor_resp")) %>%
+  dplyr::select(where(is.numeric)) %>%
+  as.data.frame()
+
+
+# Quitar columnas problemáticas
+nzv <- nearZeroVar(X, saveMetrics = TRUE)
+X <- X[, !nzv$zeroVar & !nzv$nzv]
+
+# Escalar
+X_scaled <- scale(X)
+
+# 2. Entrenar SVM con probabilidades
+set.seed(123)
+modelo_svm_prob <- svm(
+  x = X_scaled,
+  y = Y,
+  kernel = "linear",
+  type = "C-classification",
+  probability = TRUE
+)
+
+# 3. Crear función de predicción que devuelve una única probabilidad (por clase)
+pred_fun <- function(model, newdata) {
+  preds <- attr(predict(model, newdata, probability = TRUE), "probabilities")
+  # Devolver probabilidad para una clase específica
+  preds[, "RP", drop = FALSE]
+}
+
+# 4. Crear objeto Predictor iml
+predictor <- Predictor$new(
+  model = modelo_svm_prob,
+  data = as.data.frame(X_scaled),
+  y = Y,
+  predict.function = pred_fun,
+  class = "RP"
+)
+
+# 5. Calcular SHAP para una observación (la 1ª)
+shap1 <- Shapley$new(predictor, x.interest = as.data.frame(X_scaled)[1, , drop = FALSE])
+plot(shap1)
+```
+
+```{r}
+# 1. Obtener resultados SHAP de una observación ya calculada
+shap_df <- shap1$results
+
+# 2. Seleccionar las 10 variables más importantes por |phi|
+top_vars <- shap_df %>%
+  mutate(abs_phi = abs(phi)) %>%
+  arrange(desc(abs_phi)) %>%
+  slice(1:10) %>%
+  pull(feature)
+
+cat("Top 10 variables SHAP:\n")
+print(top_vars)
+
+# 3. Subconjunto del dataset con esas variables
+X_top <- as.data.frame(X_scaled)[, top_vars]
+
+# 4. Inicializar predicciones LOO
+pred_loo <- factor(rep(NA, nrow(X_top)), levels = levels(Y))
+
+# 5. LOO manual
+set.seed(123)
+for (i in 1:nrow(X_top)) {
+  X_train <- X_top[-i, ]
+  Y_train <- Y[-i]
+  X_test <- X_top[i, , drop = FALSE]
+  
+  modelo <- svm(
+    x = X_train,
+    y = Y_train,
+    kernel = "linear",
+    type = "C-classification",
+    probability = TRUE
+  )
+  
+  pred_i <- predict(modelo, X_test)
+  pred_loo[i] <- as.character(pred_i)
+}
+
+# 6. Evaluación
+confusionMatrix(pred_loo, Y)
+```
+
+LOO
+
+```{r}
+# Este bloque ya debería estar ejecutado
+shap_df <- shap1$results
+
+top_vars <- shap_df %>%
+  mutate(abs_phi = abs(phi)) %>%
+  arrange(desc(abs_phi)) %>%
+  slice(1:10) %>%
+  pull(feature)
+
+X_top <- as.data.frame(X_scaled)[, top_vars]
+
+library(e1071)
+library(caret)
+
+# Inicializar vector de predicciones
+pred_loo <- factor(rep(NA, nrow(X_top)), levels = levels(Y))
+
+# LOO loop
+set.seed(123)
+for (i in 1:nrow(X_top)) {
+  X_train <- X_top[-i, ]
+  Y_train <- Y[-i]
+  X_test <- X_top[i, , drop = FALSE]
+  
+  # Entrenar modelo SVM con probabilidades activadas (por consistencia)
+  modelo <- svm(
+    x = X_train,
+    y = Y_train,
+    kernel = "linear",
+    type = "C-classification",
+    probability = TRUE
+  )
+  
+  # Predecir clase
+  pred_i <- predict(modelo, X_test)
+  pred_loo[i] <- as.character(pred_i)
+}
+
+# Evaluar
+confusionMatrix(pred_loo, Y)
+```

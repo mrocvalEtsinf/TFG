@@ -1,0 +1,574 @@
+---
+title: "Tratamiento, Limpieza y Selección de variables"
+author: "Manuel Rocamora Valenti"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    number_sections: false
+    toc_depth: 2
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. TRATAMIENTO
+
+En este primer paso, cargaremos los datos y aplicaremos un tratamiento previo, incluyendo la combinación de variables duplicadas y la renombración de columnas para mejorar su comprensión.
+
+## 1.2 Carga de librerías
+
+```{r}
+library(readxl)   
+library(dplyr)    
+library(ggplot2)
+library(mice)
+library(reshape2)
+library(writexl)
+```
+
+## 1.3 Carga de datos
+
+```{r}
+# Reemplaza "datos.xlsx" y "hoja1" con el nombre real de tu archivo y hoja
+datos <- read_excel("/Users/manuelrocamoravalenti/Desktop/TFG/Datos_Crudo/DatosAnalisisPrediccion.xlsx")
+
+```
+
+## 1.4 Cambios de algunos nombres
+
+En este punto, cambiamos los nombre de algunas Variables al ingles.
+
+```{r}
+names(datos)[names(datos) == "Joven(0)_Anciano(1)"] <- "Elderly"
+names(datos)[names(datos) == "%_perd_peso"] <- "Percentage_weight_loss"
+names(datos)[names(datos) == "PD-L1"] <- "PD_L1"
+names(datos)[names(datos) == "1ª_eval"] <- "First_evaluation"
+names(datos)[names(datos) == "1ªeval_num"] <- "First_evaluation_num"
+names(datos)[names(datos) == "Progresión_sí/no"] <- "Progression"
+names(datos)[names(datos) == "2ªL_sí/no"] <- "second_line_treatment"
+names(datos)[names(datos) == "Exitus_sí/no"] <- "Exitus"
+names(datos)[names(datos) == "Sexo"] <- "Sex"
+```
+
+## 1.5 Combinacion de variables repetidas
+
+Existen algunas variables repetidas en el conjunto de datos, las cuales, algunas está completas en un paciente y otras no, la finalidad de combinarlas es rear una sola columna mas completa.
+
+```{r}
+datos <- datos %>%
+  mutate(estudios = coalesce(`Estudios...14`, `Estudios...29`)) %>%
+  select(-`Estudios...14`, -`Estudios...29`)
+
+datos <- datos %>%
+  mutate(est_civil = coalesce(`Est_civil...15`, `Est_civil...31`)) %>%
+  select(-`Est_civil...15`, -`Est_civil...31`)
+
+datos <- datos %>%
+  mutate(hogar = coalesce(`Comp_hogar...16`, `Comp_hogar...32`)) %>%
+  select(-`Comp_hogar...16`, -`Comp_hogar...32`)
+
+datos <- datos %>%
+  mutate(MOOSs = coalesce(`MOSs...17`, `MOSs...33`)) %>%
+  select(-`MOSs...17`, -`MOSs...33`)
+
+datos <- datos %>%
+  mutate(ansiedad = coalesce(`Ansiedad...18`, `Ansiedad...36`)) %>%
+  select(-`Ansiedad...18`, -`Ansiedad...36`)
+
+datos <- datos %>%
+  mutate(depresion = coalesce(`Depresion...19`, `Depresion...37`)) %>%
+  select(-`Depresion...19`, -`Depresion...37`)
+
+datos <- datos %>%
+  mutate(MNA = coalesce(`MNA...20`, `MNA...27`)) %>%
+  select(-`MNA...20`, -`MNA...27`)
+```
+
+Las variables de 'estudio' y 'hogar', como tienen tan pocos valores faltante, vamos a sustituir los espacios vacios, por el valor 'Unknown'.
+
+```{r}
+datos$estudios[is.na(datos$estudios)] <- "Unknown"
+datos$hogar[is.na(datos$hogar)] <- "Unknown"
+```
+
+# 2. LIMPIEZA
+
+Para garantizar la calidad del análisis, es necesario limpiar el conjunto de datos eliminando aquellas columnas con un alto porcentaje de valores faltantes.
+
+En este caso, estableceremos un **umbral del 23%**, por lo que cualquier columna que supere este porcentaje será eliminada.
+
+Esto nos permite reducir el impacto de datos incompletos y mejorar la fiabilidad de los resultados obtenidos.
+
+## 2.1 Eliminación de columnas previa
+
+Las columnas que vamos a eliminar no le dan valor alguno al análisis, es por ello que se eliminan manualmente, algunas de ellas como las fechas y las variables respuesta. (First_evaluation, Second_evaluation), serán vitales en futuros análisis.
+
+```{r}
+datos <- datos %>% select(-Num_pac, -Fecha_nac, -Fecha_dx, -Peso, -Talla,
+                          -G8, -Audicion, -Barthel, -Lawton_Brody, -SPPB,
+                          -Caida_6m, -Pfeiffer, -Mini_mental, -Social_Gijon,
+                          -Yesavage, -CIRS, -Charlson, -Polifarmacia, -Sd_geriatr,
+                          -Clasif_geriatr_Balducci, -Clasif_geriatr_SIOG1,
+                          -Biopsia_liq, -Tipo_mut_Liq, -Fecha_inicio_pem, -Mejor_resp, 
+                          -Fecha_exitus, -Fecha_últ_control, -Fecha_SLP, -Fecha_SG, 
+                          -Fecha_progresión, -Observaciones, -'Leuc%', -'Linf%', 
+                          -'CD45+', -First_evaluation, -First_evaluation_num, 
+                          -Mejor_resp_num, -T, -N, -M, -'Toxicidad_si/no', 
+                          -Tipo_tox, -Grado_tox, -SG, -SG_cens)
+```
+
+## 2.2 Análisis de datos faltantes (Columnas)
+
+Ahora vamos a calcular el porcentaje de valores faltantes por columna, crear un resumen con los resultados y ordenarlos de mayor a menor segun su porcentaje.
+
+```{r}
+# Calcular el porcentaje de valores faltantes por columna
+missing_percent <- colSums(is.na(datos)) / nrow(datos) * 100
+
+# Crear un dataframe con el resumen de valores faltantes
+missing_summary <- data.frame(Columna = names(missing_percent), Porcentaje_Faltante = missing_percent)
+
+# Mostrar el resumen
+dplyr::arrange(missing_summary, desc(Porcentaje_Faltante))
+
+# Crear un dataframe con los porcentajes de valores faltantes por columna
+df_missing_col <- data.frame(Porcentaje_Faltante = missing_percent)
+
+# Generar el histograma
+ggplot(df_missing_col, aes(x = Porcentaje_Faltante)) +
+  geom_histogram(bins = 10, fill = "lightblue", color = "black", alpha = 0.7) +
+  geom_vline(xintercept = 20, color = "red", linetype = "dashed", size = 1, label = "Umbral 20%") +
+  geom_vline(xintercept = 50, color = "red", linetype = "dashed", size = 1, label = "Umbral 50%") +
+  labs(title = "Distribución de valores faltantes por columna",
+       x = "Porcentaje de valores faltantes",
+       y = "Frecuencia") +
+  theme_minimal()
+```
+
+### 2.2.1 Eliminación de columnas con más del 23% de valores faltantes
+
+Una vez identificadas las variables con al menos un 23% de valores faltante, las eliminamos.
+
+```{r}
+threshold <- 24  # Umbral de eliminación
+datos_limpios <- datos %>% select(which(missing_percent <= threshold))
+
+# Verificar las columnas eliminadas
+columnas_eliminadas <- names(missing_percent[missing_percent > threshold])
+```
+
+Por lo que las columnas que quedan **dentro del analisis** son las siguientes:
+
+```{r}
+colnames(datos_limpios)
+writeLines(colnames(datos_limpios), "nombres_columnas_n.txt")
+```
+
+------------------------------------------------------------------------
+
+### Contexto PCR
+
+En el contexto de **cáncer de pulmón tratado con inmunoterapia**, la **PCR** hace referencia a la **Proteína C Reactiva**, un marcador de inflamación medido en sangre. Esta proteína es producida por el hígado en respuesta a procesos inflamatorios, infecciones o progresión tumoral, y su medición puede aportar información útil sobre el estado clínico del paciente. En pacientes que reciben inmunoterapia (como nivolumab o pembrolizumab), una **PCR elevada antes o durante el tratamiento** se ha asociado en algunos estudios con **peor pronóstico**, **menor respuesta a la terapia** y **mayor riesgo de progresión del cáncer**. Por ello, la PCR puede utilizarse como herramienta para **monitorizar la inflamación sistémica**, detectar posibles **eventos adversos inmunomediados** o diferenciar entre progresión tumoral e infección. Aunque su papel como **biomarcador pronóstico** aún se encuentra en investigación, en general se ha observado que **niveles bajos de PCR** se correlacionan con **mejor respuesta a la inmunoterapia** y mayor supervivencia, mientras que niveles altos podrían indicar la necesidad de una evaluación clínica más detallada.
+
+------------------------------------------------------------------------
+
+Como podemos observar la variable 'PCR' es de gran interés para este tipo de tratamiento, por lo tanto es importante revisar que entra en el 23% de Nan's
+
+OJO !! ¿Es una posible **variable respuesta**????
+
+```{r}
+datos_limpios$PCR
+```
+
+Por último, cambiamos al ingles el resto de variables
+
+```{r}
+colnames(datos_limpios) <- c(
+  "Patient_ID", "Sex", "Age_at_diagnosis", "Elderly", "ECOG", "BMI", "Percentage_weight_loss",  
+  "Weight_loss_yes_no", "Smoking_habit", "Smoking_exposure", "Diabetes", "Cardiopathy", "Neurodegenerative_disease", "Histology",  
+  "Histology_num", "Stage", "Stage_num", "PD_L1", "Mutation_status", "Statins", "Total_cholesterol", 
+  "LDH", "Total_protein", "Albumin", "CRP", "Hemoglobin", "Total_leukocytes", "Neutrophils", "Total_lymphocytes", 
+  "Platelets", "NLR_pre", "PLR_pre", "PNI_pre", "ALI_pre", "SII_pre", "Protein_1C", "Albumin_1C", 
+  "Hemoglobin_1C", "Leukocytes_1C", "Neutrophils_1C", "Lymphocytes_1C", "Platelets_1C", "NLR_1C", "NLR1C_cut4", 
+  "NLR1C_cut5", "PLR_1C", "PNI_1C", "SII_1C", "Protein_2C", "Albumin_2C", "Hemoglobin_2C", 
+  "Leukocytes_2C", "Neutrophils_2C", "Lymphocytes_2C", "Platelets_2C", "NLR_2C", "NLR2C_cut4or5", "PLR_2C", 
+  "PNI_2C", "SII_2C", "Protein_1eval", "Albumin_1eval", "Hemoglobin_1eval", "Leukocytes_1eval", "Neutrophils_1eval", 
+  "Lymphocytes_1eval", "Platelets_1eval", "NLR_1eval", "PLR_1eval", "PNI_1eval", "SII_1eval", "Number_of_cycles", 
+  "Treatment_interruption", "Interruption_reason", "Progression", "Second_line_treatment", "Exitus", "PFS", 
+  "PFS_censored", "Education", "Household"
+)
+```
+
+## 2.3 Análisis de datos faltantes (Filas)
+
+Hasta ahora, hemos analizado los datos faltantes por columna, pero ahora es momento de hacerlo por filas, así que procedamos con ello.
+
+```{r}
+# Calcular el porcentaje de valores faltantes por fila
+datos_limpios$Porcentaje_NA_Fila <- rowSums(is.na(datos_limpios)) / ncol(datos_limpios) * 100
+
+# Crear el dataframe incluyendo el identificador del paciente
+df_missing <- data.frame(Patient_ID = datos_limpios$Patient_ID, 
+                         Porcentaje_NA_Fila = datos_limpios$Porcentaje_NA_Fila)
+
+df_missing
+
+# Crear el histograma
+library(ggplot2)
+ggplot(df_missing, aes(x = Porcentaje_NA_Fila)) +
+  geom_histogram(bins = 10, fill = "skyblue", color = "black", alpha = 0.7) +
+  geom_vline(xintercept = 20, color = "red", linetype = "dashed", linewidth = 1) +
+  geom_vline(xintercept = 50, color = "red", linetype = "dashed", linewidth = 1) +
+  labs(title = "Distribución de valores faltantes por fila",
+       x = "Porcentaje de valores faltantes",
+       y = "Frecuencia") +
+  theme_minimal()
+```
+
+Dado que solo dos pacientes tienen un porcentaje de valores faltantes del 28.4% y 45.45%, respectivamente, y considerando que la cantidad de datos perdidos en estas filas es significativa, procederemos a eliminarlos para evitar posibles sesgos o problemas en el análisis.
+
+```{r}
+
+# Eliminar los pacientes P_17 y P_21
+#datos_limpios <- datos_limpios %>%
+ # filter(!(Patient_ID %in% c("P_17", "P_21")))
+
+# Verificar que los pacientes han sido eliminados
+#print(unique(datos_limpios$Patient_ID))
+```
+
+Eliminamos la columna que hemos creada de procentaje de Na\`s
+
+```{r}
+# Eliminar por nombre
+datos_limpios <- datos_limpios %>% select(-Porcentaje_NA_Fila)
+```
+
+# 3. IMPUTACION
+
+En este apartado abordaremos la imputación de datos faltantes, con la libreria mice.
+
+Vamos a hacer uso del metodo de
+
+```{r}
+tipos_var <- data.frame(Columna = names(datos))
+tipos_var$Tipo <- sapply(datos, function(x) class(x)[1])
+tipos_var
+
+write.csv(tipos_var, "tipos_columnas.csv", row.names = FALSE)
+
+datos = datos_limpios
+```
+
+Antes de continuar, tenemos que transformar a *factor* aquellas variables que son de naturaleza categorica.
+
+```{r}
+# Convertir las columnas a sus respectivos tipos de datos
+datos$Sex <- as.factor(datos$Sex)
+datos$ECOG <- as.factor(datos$ECOG)
+datos$Smoking_habit <- as.factor(datos$Smoking_habit)
+datos$Weight_loss_yes_no <- as.factor(datos$Weight_loss_yes_no)
+datos$Diabetes <- as.factor(datos$Diabetes)
+datos$Cardiopathy <- as.factor(datos$Cardiopathy)
+datos$Neurodegenerative_disease <- as.factor(datos$Neurodegenerative_disease)
+datos$Histology <- as.factor(datos$Histology)
+datos$Stage <- as.factor(datos$Stage)
+datos$Statins <- as.factor(datos$Statins)
+datos$NLR1C_cut4 <- as.factor(datos$NLR1C_cut4)
+datos$NLR1C_cut5 <- as.factor(datos$NLR1C_cut5)
+datos$Histology_num <- as.factor(datos$Histology_num)
+datos$Stage_num <- as.factor(datos$Stage_num)
+datos$Second_line_treatment <- as.factor(datos$Second_line_treatment)
+# Convertir las columnas numéricas correctamente
+datos$Age_at_diagnosis <- as.numeric(datos$Age_at_diagnosis)
+datos$BMI <- as.numeric(datos$BMI)
+datos$Percentage_weight_loss <- as.numeric(datos$Percentage_weight_loss)
+datos$Total_cholesterol <- as.numeric(datos$Total_cholesterol)
+datos$LDH <- as.numeric(datos$LDH)
+datos$Total_protein <- as.numeric(datos$Total_protein)
+datos$Albumin <- as.numeric(datos$Albumin)
+datos$CRP <- as.numeric(datos$CRP)
+datos$Hemoglobin <- as.numeric(datos$Hemoglobin)
+datos$Total_leukocytes <- as.numeric(datos$Total_leukocytes)
+datos$Neutrophils <- as.numeric(datos$Neutrophils)
+datos$Total_lymphocytes <- as.numeric(datos$Total_lymphocytes)
+datos$Platelets <- as.numeric(datos$Platelets)
+
+
+```
+
+Comprobamos que el cambio ha sido correcto
+
+```{r}
+tipos_var <- data.frame(Columna = names(datos))
+tipos_var$Tipo <- sapply(datos, function(x) class(x)[1])
+tipos_var
+```
+
+## 3.1. Metodo Cart
+
+El paso previo a la imputacion de los datos es visualizar con el grafico *md.pattern* de la libreria mice aquellas posibles columnas que contengán un numero muy elevado y se nos puedan haber pasado.
+
+Al tener tantisimas variables, las vamos a graficar de 5 en 5.
+
+```{r}
+n_vars <- ncol(datos_limpios)
+
+# Dividir en bloques de 5 variables
+bloques <- split(1:n_vars, ceiling(seq_along(1:n_vars)/5))
+
+for(i in seq_along(bloques)) {
+  sub_data <- datos_limpios[, bloques[[i]], drop = FALSE]
+  
+  # Solo si hay al menos 2 columnas
+  if (ncol(sub_data) >= 2) {
+    cat("\n🔹 Mostrando patrón de faltantes para variables", 
+        min(bloques[[i]]), "a", max(bloques[[i]]), "\n\n")
+    
+    print(md.pattern(sub_data))
+  } else {
+    cat("\n⚠️  Bloque", i, "tiene solo una columna, se omite.\n")
+  }
+}
+```
+
+Una vez revisado los gráficos, vemos que las variables que mas valores faltantes tienen es de un máximo de 4 por variable, un numero aceptable para la imputación.
+
+En este caso usaremos el metodo de *cart,* este metodo usa árboles de decisión:
+
+-   Árboles de regresión para las variables numéricas
+
+-   Árboles de clasificación para las variables categoricas (Factor)
+
+Además de que vamos a generar 5 matrices con un máximo de 10 iteraciones por matriz.
+
+```{r}
+imputed_data <- mice(datos_limpios, method = "cart", maxit = 10, m = 5, seed = 123)
+```
+
+## 3.2. Selección de mejor matriz de imputación
+
+Este punto es importante, ya que vamos a tratar de seleccionar la matriz de imputación mas acertada, el procedimiento es el siguiente:
+
+-   **Para variables Numericas**
+
+    -   Localizar las variables numéricas con mayores valores faltantes antes de la imputación
+
+    -   Seleccionarlas de las 5 matrices de imputación + la original
+
+    -   Crear un grafico de violin donde observaremos de manera local la distribución de los datos
+
+    -   Seleccionaremos aquella matriz que siga la distrbución mas parecida a la variable original
+
+-   **Para variables Categoricas**
+
+    -   Localizar las variables Categóricas con mayores valores faltantes antes de la imputación
+
+    -   Seleccionarlas de las 5 matrices de imputación + la original
+
+    -   Crear un grafico de barras donde observaremos de manera local la distribución de los datos
+
+    -   Seleccionaremos aquella matriz que siga la distrbución mas parecida a la variable original
+
+```{r}
+# Variables seleccionadas para graficar
+variables_seleccionadas <- c("CRP", "Mutation_status", "Protein_2C", "Albumin_2C", "PNI_2C", "Protein_1eval")
+
+# Extraer las 5 imputaciones generadas por mice y añadir etiquetas
+imputed_sets_df <- lapply(1:5, function(i) {
+  df <- complete(imputed_data, i)
+  df$Imputation <- paste("Imputación", i)  # Etiqueta de imputación
+  return(df)
+})
+
+# Convertir en un solo dataframe
+imputed_full <- do.call(rbind, imputed_sets_df)
+
+# Agregar los datos originales con etiqueta "Original"
+datos_limpios$Imputation <- "Original"
+imputed_full <- rbind(datos_limpios, imputed_full)
+
+# Generar gráficos uno por uno
+for (var in variables_seleccionadas) {
+  
+  # Asegurar que la variable sea numérica y eliminar NAs
+  imputed_full[[var]] <- as.numeric(imputed_full[[var]])
+  imputed_filtered <- imputed_full[!is.na(imputed_full[[var]]), ]
+  
+  # Crear y mostrar el violin plot
+  p <- ggplot(imputed_filtered, aes(x = Imputation, y = !!sym(var), fill = Imputation)) +
+    geom_violin(alpha = 0.7, trim = FALSE) +  # Violin plot sin recorte
+    geom_jitter(shape = 16, position = position_jitter(0.2), alpha = 0.3, color = "black") +  # Puntos dispersos
+    scale_fill_manual(values = c("gray", "blue", "green", "orange", "purple", "red")) +  
+    labs(title = paste("Comparación de Datos Originales vs. Imputaciones (", var, ")"),
+         x = "Fuente de Datos", y = var) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotar etiquetas
+  
+  print(p)  # Mostrar el gráfico en una nueva página
+}
+```
+
+Ahora vamos a por las categoricas
+
+```{r}
+library(mice)
+library(ggplot2)
+library(reshape2)
+
+# Variables categóricas seleccionadas
+variables_categoricas <- c("Weight_loss_yes_no", "Smoking_habit")
+
+# Extraer las 5 imputaciones generadas por mice y añadir etiquetas
+imputed_sets_df <- lapply(1:5, function(i) {
+  df <- complete(imputed_data, i)
+  df$Imputation <- paste("Imputación", i)  # Etiqueta de imputación
+  return(df)
+})
+
+# Convertir en un solo dataframe
+imputed_full <- do.call(rbind, imputed_sets_df)
+
+# Agregar los datos originales con etiqueta "Original"
+datos_limpios$Imputation <- "Original"
+imputed_full <- rbind(datos_limpios, imputed_full)
+
+# Generar gráficos de barras uno por uno
+for (var in variables_categoricas) {
+  
+  # Convertir la variable en factor y eliminar NAs
+  imputed_full[[var]] <- as.factor(imputed_full[[var]])
+  imputed_filtered <- imputed_full[!is.na(imputed_full[[var]]), ]
+  
+  # Crear y mostrar el gráfico de barras
+  p <- ggplot(imputed_filtered, aes(x = !!sym(var), fill = Imputation)) +
+    geom_bar(position = "dodge", alpha = 0.7) +  # Barras separadas por Imputation
+    scale_fill_manual(values = c("gray", "blue", "green", "orange", "purple", "red")) +  
+    labs(title = paste("Distribución de", var, "por Imputación"),
+         x = var, y = "Frecuencia") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotar etiquetas
+  
+  print(p)  # Mostrar el gráfico en una nueva página
+}
+```
+
+## 3.3. Exportamos la matriz de imputación
+
+En este ultimo punto, vamos a introducir las 2 variables respuesta y a guardar los datos limpios y preaprados para el PCA
+
+```{r}
+datos <- read_excel("/Users/manuelrocamoravalenti/Desktop/TFG/Datos_Crudo/Base_Pembro_1L(febrero_24)_v2.xlsx")
+
+# Extraer la tercera imputación generada por mice
+matriz_imputada_4 <- complete(imputed_data, 4)
+
+# Extraer solo las columnas necesarias del dataset original 'datos'
+variables_reintegrar <- datos[, c("Idpac", "1ª_eval", "Mejor_resp")]
+
+# Realizar el merge respetando los nombres distintos de ID
+matriz_completa <- merge(matriz_imputada_4, 
+                         variables_reintegrar, 
+                         by.x = "Patient_ID", 
+                         by.y = "Idpac", 
+                         all.x = TRUE)
+
+# Guardar los datos en un archivo CSV
+write.csv(matriz_completa, "datos_limpios.csv", row.names = FALSE)
+```
+
+# 4. RESUMEN VARIABLES TEMPORALES
+
+```{r}
+
+datos = read.csv('datos_limpios.csv')
+
+datos <- datos %>%
+  rename(Protein = Total_protein,
+         Leukocytes = Total_leukocytes,
+         Lymphocytes = Total_lymphocytes,
+         NLR = NLR_pre,
+         PLR = PLR_pre,
+         PNI = PNI_pre,
+         SII = SII_pre)
+
+resumir_y_reemplazar_series_temporales <- function(df, biomarcadores) {
+  
+  # Sufijos temporales (en orden)
+  sufijos <- c("", "_1C", "_2C", "_1eval")
+  posiciones <- seq_along(sufijos)
+  
+  for (biom in biomarcadores) {
+    # Columnas temporales por biomarcador
+    vars <- paste0(biom, sufijos)
+    
+    # Verifica existencia
+    if (!all(vars %in% names(df))) {
+      warning(paste("Faltan columnas para:", biom))
+      next
+    }
+    
+    # Calcular variables resumen
+    df <- df %>%
+      rowwise() %>%
+      mutate(
+        # ➤ Media general del biomarcador
+        !!paste0(biom, "_media") := mean(c_across(all_of(vars)), na.rm = TRUE),
+        
+        # ➤ Coeficiente de variación (desviación relativa): mide estabilidad
+        !!paste0(biom, "_cv") := sd(c_across(all_of(vars)), na.rm = TRUE) / (!!sym(paste0(biom, "_media"))),
+        
+        # ➤ Pendiente de la evolución temporal (tendencia general)
+        !!paste0(biom, "_slope") := coef(lm(c_across(all_of(vars)) ~ posiciones))[2],
+        
+        # ➤ Cambios entre los diferentes momentos
+        !!paste0(biom, "_diff_0_1C") := .data[[paste0(biom, "_1C")]] - .data[[biom]],
+        !!paste0(biom, "_diff_1C_2C") := .data[[paste0(biom, "_2C")]] - .data[[paste0(biom, "_1C")]],
+        !!paste0(biom, "_diff_2C_1eval") := .data[[paste0(biom, "_1eval")]] - .data[[paste0(biom, "_2C")]],
+        !!paste0(biom, "_diff_0_1eval") := .data[[paste0(biom, "_1eval")]] - .data[[biom]]
+      ) %>%
+      ungroup()
+    
+    # Eliminar las columnas originales temporales
+    df <- df %>% select(-all_of(vars))
+  }
+  
+  return(df)
+}
+```
+
+```{r}
+# Lista de variables base (prefijos)
+biomarcadores <- c("Albumin", "Protein","Hemoglobin","Leukocytes","Neutrophils",
+                   "Lymphocytes", "Platelets", "NLR", "PLR", "PNI", "SII")
+
+# Aplicas la función sobre tu dataframe
+datos_resumen <- resumir_y_reemplazar_series_temporales(datos, biomarcadores)
+
+
+
+write_xlsx(datos_resumen, "datosLimpio.xlsx")
+```
+
+**Resumen de variables temporales**
+
+Dado que muchas de nuestras variables clínicas se registran en distintos momentos del tratamiento (baseline, 1C, 2C, 1ª evaluación), y cada paciente tiene solo 4 puntos temporales por variable, decidimos resumir estas *mini-series* en nuevas variables que capturan la evolución de forma más robusta y manejable.
+
+Con este enfoque evitamos problemas de colinealidad entre los distintos tiempos (frecuente en modelos clásicos) y transformamos la información longitudinal en variables estáticas más interpretables, como:
+
+-   **Media**: nivel medio del biomarcador.
+
+-   **Coeficiente de variación (CV)**: estabilidad del biomarcador.
+
+-   **Pendiente (slope)**: tendencia general (positiva o negativa).
+
+-   **Diferencias entre puntos clave**: cambios entre momentos clínicos relevantes.
+
+Esta transformación permite usar modelos de clasificación convencionales sin asumir estructura temporal explícita. Además, reduce dimensionalidad y facilita la selección de variables.
+
+Existen paquetes como tsfel (Python) o tsfeatures (R) diseñados para extraer características automáticas de series temporales, pero en este trabajo, debido al escaso número de puntos por serie, **se optó por un enfoque personalizado con estadísticos simples**.

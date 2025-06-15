@@ -1,0 +1,254 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2822
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fnil\fcharset0 .SFNS-Bold;\f1\fnil\fcharset0 .SFNS-Regular;\f2\fnil\fcharset0 HelveticaNeue-Bold;
+\f3\fswiss\fcharset0 Helvetica;\f4\fnil\fcharset0 .AppleSystemUIFontMonospaced-Regular;}
+{\colortbl;\red255\green255\blue255;\red14\green14\blue14;}
+{\*\expandedcolortbl;;\cssrgb\c6700\c6700\c6700;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11820\viewh11540\viewkind0
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs24 \cf2 Mirar tambi\'e9n el PCA sin lso cambios de featiures\
+Mira las variabes que se junta, PLR_diff_0_1eval \'97> PLR_slope \'85\
+Pra descartrar variasse que sean redundantes\
+\
+\
+PLS-DA nos diga cual de estas es las que mejor discrimina, con los cambios o no, seleccionar solo 2 componentes\
+\
+Crear el PCA con 2 componentes, la 3,4 y 5,6no sirve\
+\
+\
+- ver en el PC o grafico de correlaci\'f3nnes, con din\'e1micas nuevas y viejas, ver la correlaci\'f3n con solo esas variables, coorplot para cada una de las din\'e1micas y las antiguas, distintos chorlos con nuevas y vieja y ver las correlaciones de estas, etc\'85\
+\
+\
+Correo a tereasa PS \'97> EE, pasa la image del PCA ETC\'85.\
+\
+Buscar mejores valores de evaluaci\'f3n f1Score etc\'85\
+\
+Con 1 componente \'97> Los gr\'e1ficos del sobreajuste en PLS-DA, predicciones, gr\'e1ficos, etc\'85\
+\
+\
+Gr\'e1ficos de score modelo con 2 componentes, \
+\
+Necesito amo un LOO que haga la predicci\'f3n con variabels que queden fuera de Gad iteraciones\
+\
+\
+\
+\
+\
+GRaficos de Correlaci\'f3n ixmpoirtanes, y ver 	ue tipo de variables nos quedasmo, descartar redundantes.\
+\
+\
+\
+Revisar variables que no deben estar !!!!!! \
+Y solo con las que los COrplo te digan ue esten bien y no relacionadas entre si,\
+\
+\
+Centrate de una puta vez joder.\
+\
+\
+REPETIR PCA Y PLS-DA, ADEMAS DE CONFIRMAR EL PS CON TERESA SI PASA A EE\
+\
+\
+Dedicale tiempo, esto te pasa por no estar centrado!!! No hagas perder el tiempo. Al personas \
+\
+\
+\
+Revisar TODAS las variabels repetidas!!! Lleva cuidado con esto, nos esta perjudicando los modelos manuelina!!!!\
+\
+Stage numeric ordinal \'97> la misma que la del PLS\
+\
+Lo mismo que entra en el PCA, debe entrar en el PLS-DA\
+\
+\
+\
+\
+\
+EXPLICACION PARA ALBUMIN\
+\
+Albumin_media
+\f1\b0 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f2\b Significado
+\f1\b0 : la 
+\f2\b media aritm\'e9tica
+\f1\b0  de los valores de alb\'famina en distintos puntos del tratamiento (por ejemplo: pre, 1C, 2C, 1eval\'85).\
+	\'95	
+\f2\b Interpretaci\'f3n cl\'ednica
+\f1\b0 : refleja el 
+\f2\b nivel promedio
+\f1\b0  de alb\'famina a lo largo del seguimiento.\
+	\'95	
+\f2\b Uso
+\f1\b0 : \'fatil para estimar el nivel general de este marcador, independientemente de oscilaciones puntuales.\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3 \cf0 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1 \cf2 \
+
+\f0\b Albumin_cv
+\f1\b0 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f2\b Significado
+\f1\b0 : el 
+\f2\b coeficiente de variaci\'f3n
+\f1\b0  = (desviaci\'f3n est\'e1ndar / media) \'d7 100.\
+	\'95	
+\f2\b Interpretaci\'f3n cl\'ednica
+\f1\b0 : mide la 
+\f2\b variabilidad relativa
+\f1\b0  de la alb\'famina entre visitas.\
+	\'95	
+\f2\b Uso
+\f1\b0 : identifica pacientes con niveles de alb\'famina inestables o fluctuantes.
+\f3 \cf0 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1 \cf2 \
+
+\f0\b \
+Albumin_slope
+\f1\b0 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f2\b Significado
+\f1\b0 : la 
+\f2\b pendiente
+\f1\b0  de la alb\'famina en el tiempo, estimada por regresi\'f3n lineal de los valores contra las fechas.\
+	\'95	
+\f2\b Interpretaci\'f3n cl\'ednica
+\f1\b0 : representa la 
+\f2\b tendencia
+\f1\b0  de cambio (subida o bajada sostenida).\
+\pard\tqr\tx500\tx660\li660\fi-660\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Positivo \uc0\u8594  alb\'famina aumenta con el tiempo.\
+	\'95	Negativo \uc0\u8594  disminuye.\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f2\b Uso
+\f1\b0 : \'fatil para identificar deterioro nutricional progresivo.\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+
+\f3 \cf0 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1 \cf2 \
+
+\f0\b Albumin_diff_0_1C
+\f1\b0 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f2\b Significado
+\f1\b0 : 
+\f2\b diferencia
+\f1\b0  entre el valor en el ciclo 1 y el valor basal (pre-tratamiento).\
+\pard\tqr\tx500\tx660\li660\fi-660\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f4 Albumin_1C \uc0\u8722  Albumin_pre
+\f1 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f2\b Interpretaci\'f3n cl\'ednica
+\f1\b0 : cambio inicial tras el primer ciclo de tratamiento.\
+	\'95	
+\f2\b Uso
+\f1\b0 : marcador de 
+\f2\b respuesta temprana
+\f1\b0  o efectos adversos r\'e1pidos.\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3 \cf0 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1 \cf2 \
+
+\f0\b Albumin_diff_1C_2C
+\f1\b0 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f2\b Significado
+\f1\b0 : diferencia entre el ciclo 2 y el ciclo 1.\
+\pard\tqr\tx500\tx660\li660\fi-660\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f4 Albumin_2C \uc0\u8722  Albumin_1C
+\f1 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f2\b Interpretaci\'f3n cl\'ednica
+\f1\b0 : evoluci\'f3n 
+\f2\b intermedia
+\f1\b0  tras m\'e1s ciclos de tratamiento.\
+	\'95	
+\f2\b Uso
+\f1\b0 : detecta si el marcador mejora o empeora tras m\'e1s exposici\'f3n.\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3 \cf0 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f1 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b \cf2 \
+Albumin_diff_2C_1eval
+\f1\b0 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f2\b Significado
+\f1\b0 : diferencia entre el valor en la primera evaluaci\'f3n de respuesta y el del ciclo 2.\
+\pard\tqr\tx500\tx660\li660\fi-660\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f4 Albumin_1eval \uc0\u8722  Albumin_2C
+\f1 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f2\b Interpretaci\'f3n cl\'ednica
+\f1\b0 : refleja el 
+\f2\b cambio final antes de evaluar respuesta cl\'ednica o radiol\'f3gica
+\f1\b0 .\
+	\'95	
+\f2\b Uso
+\f1\b0 : \'fatil para correlacionar con RECIST o PFS.\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3 \cf0 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1 \cf2 \
+
+\f0\b \
+Albumin_diff_0_1eval
+\f1\b0 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f2\b Significado
+\f1\b0 : diferencia total entre la primera evaluaci\'f3n y el baseline.\
+\pard\tqr\tx500\tx660\li660\fi-660\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f4 Albumin_1eval \uc0\u8722  Albumin_pre
+\f1 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f2\b Interpretaci\'f3n cl\'ednica
+\f1\b0 : cambio global acumulado.\
+	\'95	
+\f2\b Uso
+\f1\b0 : puede reflejar 
+\f2\b respuesta general al tratamiento
+\f1\b0  o desnutrici\'f3n progresiva.\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3 \cf0 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+\cf0 	
+\f1 \cf2 1eval \uc0\u8722  pre
+\f3 \cf0 	
+\f1 \cf2 Resultado final respecto al baseline
+\f3 \cf0 \
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1\fs38 \cf2 \
+}

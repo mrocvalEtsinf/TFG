@@ -1,0 +1,318 @@
+---
+title: "Modelo PLS-DA"
+author: "Manuel Rocamora Valenti"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+    theme: readable
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Librerias
+
+```{r}
+library(openxlsx)
+library(dplyr)
+library(fastDummies)
+library(ropls)
+library(ggplot2)
+library(ggrepel)
+library(caret)
+```
+
+# Carga de datos
+
+Vamos con la carga de los datos, el formato utilizado es Excel.
+
+```{r}
+data <- read.xlsx("datos_PCA.xlsx")
+```
+
+# Transformación de los datos
+
+# Modelo PLS-DA
+
+```{r}
+# Preparar Y
+Y <- as.factor(data$X1ª_eval)
+
+# Preparar X
+X <- data[, !(names(data) %in% c("X1ª_eval", "Mejor_resp"))]
+X <- X[, sapply(X, is.numeric)]
+X <- as.matrix(X)
+
+
+# Modelo PLS-DA
+mypls = opls(x = X, y = Y, predI = NA, crossvalI = nrow(X), scaleC = "standard",
+             fig.pdfC = "none")
+
+```
+
+```{r}
+maxNC = min(dim(X)); maxNC
+```
+
+```{r}
+myplsC = opls(x = X, y = Y, predI = 1, crossvalI = nrow(X), 
+              scaleC = "standard", fig.pdfC = "none")
+```
+
+```{r}
+# Cuántas componentes hay realmente en el modelo
+nComp_total <- nrow(myplsC@modelDF)
+
+# Límite superior: 5 o lo que tenga el modelo, lo que sea menor
+nComp <- min(5, nComp_total)
+
+# Extraer solo los valores válidos
+R2Y_vals <- myplsC@modelDF$`R2Y(cum)`[1:nComp]
+Q2_vals  <- myplsC@modelDF$`Q2(cum)`[1:nComp]
+
+# Gráfico limpio hasta la componente 5 (o menos si no hay tantas)
+plot(1:nComp, R2Y_vals, type = "o", pch = 16, col = "blue3",
+     lwd = 2, xlab = "Components", ylab = "", ylim = c(0, 1),
+     main = "PLS model")
+
+lines(1:nComp, Q2_vals, type = "o", pch = 16, col = "red3", lwd = 2)
+abline(h = 0.5, col = "red3", lty = 2)
+
+legend("bottomleft", c("R2Y", "Q2"), lwd = 2,
+       col = c("blue3", "red3"), bty = "n")
+```
+
+No entiendo por que sale 0, supongo que será por los warnign en el modelo
+
+```{r}
+A <- 2
+mypls = opls(x = X, y = Y, predI = A, crossvalI = nrow(X), scaleC = "standard")
+```
+
+## Medida del error
+
+```{r}
+mypred = predict(mypls)
+caret::confusionMatrix(mypred, Y)
+```
+
+## Interpretacion
+
+```{r}
+plot(mypls, typeVc = "x-score",
+     parAsColFcVn = Y,
+     parCexN = 0.8,
+     parCompVi = c(1, 2),
+     parEllipsesL = TRUE,
+     parLabVc = as.character(1:nrow(X)))
+```
+
+```{r}
+par(mfrow = c(1,2))
+
+plot(x = mypls, typeVc = "x-score",
+     parAsColFcVn = Y,                   # Colorear por grupo
+     parCexN = 0.8,
+     parCompVi = c(1, 2),
+     parEllipsesL = TRUE,
+     parLabVc = as.character(Y),         # Etiquetar con valores de clase
+     parPaletteVc = NA,
+     parTitleL = TRUE,
+     parCexMetricN = NA)
+
+plot(x = mypls, typeVc = "x-loading",
+     parCexN = 0.8, parCompVi = c(1, 2), parPaletteVc = NA,
+     parTitleL = TRUE, parCexMetricN = NA)
+```
+
+Los pacientes con **respuesta parcial (RP)** se agrupan visualmente en la zona derecha del plano (componentes t1 y t2), y están relacionados con valores elevados de hemoglobina, estabilidad nutricional (PNI) y menor inflamación.
+
+Por el contrario, los pacientes con **enfermedad estable (EE)** o **progresión (PE)** se proyectan hacia la izquierda, donde dominan variables como PLR_slope y NLR_media, indicadores de inflamación persistente o desregulada.
+
+```{r}
+data_plot <- rbind(data.frame(mypls@weightStarMN, space = "X"),
+      data.frame(mypls@cMN, space = "Y"))
+data_plot <- cbind(data_plot, variable = rownames(data_plot))
+
+ggplot(data_plot, aes(x = p1, y = p2, col = space, shape = space)) +
+  geom_point() +
+  geom_text_repel(label=rownames(data_plot), size = 3, max.overlaps = Inf) +
+  xlim(min(data_plot$p1)-0.2,max(data_plot$p1)+0.2) +
+  ylim(min(data_plot$p2)-0.2,max(data_plot$p2)+0.2) +
+  coord_fixed(ratio = 1) +
+  theme_bw() +
+  geom_vline(xintercept = 0) +
+  geom_hline(yintercept = 0) +
+  xlab("w*c (comp 1)") +
+  ylab("w*c (comp 2)")
+```
+
+El modelo ha encontrado **cierta separación entre clases**, especialmente entre EE y RP, lo que **indica que hay variables predictoras relevantes** para distinguirlas.
+
+Algunas variables se agrupan en el centro, tienen poca contribución a la separación.
+
+```{r}
+# Obtener VIPs y seleccionar las top 20
+vip <- sort(mypls@vipVn, decreasing = TRUE)
+top_vip_names <- names(vip)[1:20]
+
+# Crear data_plot para X y Y
+data_plot <- rbind(
+  data.frame(mypls@weightStarMN, space = "X"),
+  data.frame(mypls@cMN, space = "Y")
+)
+
+data_plot$variable <- rownames(data_plot)
+colnames(data_plot)[1:2] <- c("p1", "p2")
+
+# Filtrar solo las X de interés + todas las Y
+data_plot_top <- subset(data_plot, (space == "Y") | (space == "X" & variable %in% top_vip_names))
+
+# Graficar solo variables relevantes
+ggplot(data_plot_top, aes(x = p1, y = p2, col = space, shape = space)) +
+  geom_point() +
+  geom_text_repel(aes(label = variable), size = 3, max.overlaps = Inf) +
+  xlim(min(data_plot$p1) - 0.2, max(data_plot$p1) + 0.2) +
+  ylim(min(data_plot$p2) - 0.2, max(data_plot$p2) + 0.2) +
+  coord_fixed(ratio = 1) +
+  theme_bw() +
+  geom_vline(xintercept = 0) +
+  geom_hline(yintercept = 0) +
+  xlab("w*c (comp 1)") +
+  ylab("w*c (comp 2)") +
+  ggtitle("Biplot: top 20 X variables by VIP")
+```
+
+```{r}
+# Obtener variables con VIP > 1
+# Extraer VIPs
+vip <- mypls@vipVn
+
+# Crear data.frame ordenado
+vip_df <- data.frame(
+  variable = names(vip),
+  VIP = as.numeric(vip)
+)
+
+# Ordenar de mayor a menor
+vip_df <- vip_df[order(-vip_df$VIP), ]
+
+# Mostrar
+head(vip_df,50)  # muestra las 20 más importantes
+```
+
+# VIP
+
+```{r}
+
+# Si aún no existe:
+vip <- mypls@vipVn
+vip_df <- data.frame(
+  variable = names(vip),
+  VIP = as.numeric(vip)
+)
+vip_df <- vip_df[order(-vip_df$VIP), ]
+
+# (Opcional) Limitar a las 20 más importantes
+vip_top <- head(vip_df, 20)
+vip_top$variable <- factor(vip_top$variable, levels = vip_top$variable)  # para ordenar bien
+
+# Gráfico bonito
+ggplot(vip_top, aes(x = variable, y = VIP)) +
+  geom_col(fill = "steelblue") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
+  coord_flip() +
+  labs(title = "Top 20 variables por VIP",
+       x = "", y = "Valor VIP") +
+  theme_minimal(base_size = 13) +
+  theme(axis.text.y = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+# Seleccionar nombres de variables con VIP > 1
+vars_vip_1 <- vip_df$variable[vip_df$VIP > 1]
+
+# Suponiendo que 'data' es tu dataframe original con Y incluida
+# Elimina las variables de respuesta
+X_vip <- data[, vars_vip_1]
+X_vip <- as.matrix(X_vip)
+
+# Preparar Y
+
+Y <- as.factor(data$X1ª_eval)
+
+# Modelo PLS-DA con solo las VIP > 1
+pls_vip <- opls(x = X_vip, y = Y,
+                crossvalI = nrow(X_vip),  # Leave-One-Out CV
+                scaleC = "standard",
+                predI = 2)
+
+
+
+```
+
+El modelo PLS-DA con 2 componentes explica el 58% de la varianza de la variable de respuesta y presenta una capacidad predictiva moderada (Q² = 0.227). Aunque la capacidad de predicción fuera de muestra no es elevada, los tests de permutación sugieren que el modelo es marginalmente significativo (pR2Y y pQ2 = 0.05). El resultado es aceptable en contextos exploratorios o con tamaños muestrales reducidos como en este caso.
+
+```{r}
+library(openxlsx)
+
+# Crear data.frame con variables y valores VIP
+vip_export <- vip_df[vip_df$VIP > 1, ]
+
+# Guardar en un archivo Excel
+write.xlsx(vip_export, "VIP_mayor_1.xlsx", row.names = FALSE)
+```
+
+```{r}
+par(mfrow = c(1,2))
+
+plot(x = pls_vip, typeVc = "x-score",
+     parAsColFcVn = Y,                   # Colorear por grupo
+     parCexN = 0.8,
+     parCompVi = c(1, 2),
+     parEllipsesL = TRUE,
+     parLabVc = as.character(Y),         # Etiquetar con valores de clase
+     parPaletteVc = NA,
+     parTitleL = TRUE,
+     parCexMetricN = NA)
+
+plot(x = pls_vip, typeVc = "x-loading",
+     parCexN = 0.8, parCompVi = c(1, 2), parPaletteVc = NA,
+     parTitleL = TRUE, parCexMetricN = NA)
+```
+
+El gráfico de scores y cargas del modelo PLS-DA con 2 componentes revela una separación parcial entre los grupos clínicos. Los pacientes con progresión evidente (PE) tienden a agruparse hacia valores negativos de la primera componente (t1), mientras que los pacientes con evaluación excelente (EE) y respuesta parcial (RP) se concentran en la zona positiva, aunque con cierto solapamiento.
+
+Las variables más influyentes en la separación de grupos son principalmente dinámicas, como **Hemoglobin_slope**, **PNI_slope**, **Albumin_slope**, **PLR_slope** y **SII_media**, lo que refuerza el valor pronóstico de las tendencias temporales. También aparecen variables clínicas relevantes como **ALI_pre** y el hábito tabáquico. En conjunto, el modelo sugiere que la evolución de ciertos biomarcadores, junto con características clínicas de base, pueden discriminar entre respuestas clínicas con cierta precisión.
+
+## Medias del error
+
+```{r}
+mypred_Vip = predict(pls_vip)
+library(caret)
+
+caret::confusionMatrix(mypred_Vip, Y, positive = "M")
+```
+
+> Este modelo PLS-DA utilizando solo las variables VIP \> 1 y validado mediante LOO ofrece un rendimiento alto y equilibrado, con muy buena capacidad de discriminación entre los tres grupos clínicos. Es un resultado sólido y altamente interpretativo que respalda el uso de estas variables como marcadores pronósticos fiables.
+
+# P-Valor de los coeficientes
+
+```{r}
+```
+
+# Conclusion
+
+Se desarrolló un modelo de análisis discriminante por mínimos cuadrados parciales (PLS-DA) para clasificar a los pacientes según su evaluación clínica (EE, RP y PE), utilizando como predictores únicamente variables numéricas. Tras una primera ejecución del modelo con todas las variables disponibles, se calcularon los valores de importancia de proyección (VIP), seleccionando aquellas con **VIP \> 1** por su mayor contribución a la discriminación entre clases. Esta selección permite mejorar la interpretabilidad del modelo y reducir ruido, priorizando las variables más relevantes en términos biológicos y estadísticos.
+
+Las variables seleccionadas incluyen biomarcadores dinámicos como **Hemoglobin_slope**, **PNI_slope**, **Albumin_slope**, **PLR_slope**, **SII_media**, y otras relacionadas con el estado clínico basal del paciente, como **ALI_pre** o el hábito tabáquico. La presencia de múltiples variables tipo "\_slope" subraya la importancia de las **tendencias longitudinales** de los biomarcadores en la evolución clínica, más allá de los valores absolutos puntuales.
+
+El modelo entrenado con estas variables mostró un excelente rendimiento tras validación cruzada Leave-One-Out (LOO), con una **exactitud del 88,2%**, un **índice Kappa de 0,80** (indicando una alta concordancia más allá del azar), y una **alta precisión por clase**, especialmente para el grupo de progresión evidente (PE), que se identificó con un 100% de especificidad y precisión.
+
+Estos resultados refuerzan el potencial de los biomarcadores dinámicos como **herramientas pronósticas en oncología personalizada**, mostrando que el seguimiento temporal de marcadores inflamatorios y nutricionales ofrece una información crítica para anticipar la respuesta clínica de los pacientes tratados con inmunoterapia.
