@@ -1,0 +1,64 @@
+---
+title: "graficosSUper"
+author: "Manuel Rocamora Valenti"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(openxlsx)
+
+# Leer el Excel
+df <- openxlsx::read.xlsx("var.xlsx")
+
+# Convertir a formato largo
+df_long <- df %>%
+  pivot_longer(cols = c(C.index, IBS, AUC),  # columnas métricas
+               names_to = "Métrica",
+               values_to = "Valor")
+
+# Paleta personalizada por métrica
+colores_metricas <- c(
+  "C.index" = "#F96B04",
+  "IBS" = "#37B0B4",
+  "AUC" = "#E4B815"
+)
+
+# ============================
+# GRAFICOS POR CLASE – SLP
+# ============================
+df_slp <- df_long %>% filter(VARIABLE == "SLP")
+
+ggplot(df_slp, aes(x = MODELO, y = Valor, fill = Métrica)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = round(Valor, 2)),
+            position = position_stack(vjust = 0.5), size = 3, color = "white") +
+  scale_fill_manual(values = colores_metricas) +
+  labs(title = "Supervivencia libre de progresión (SLP)",
+       x = "Modelo", y = "Valor de la métrica") +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# ============================
+# GRAFICOS POR CLASE – SG
+# ============================
+df_sg <- df_long %>% filter(VARIABLE == "SG")
+
+ggplot(df_sg, aes(x = MODELO, y = Valor, fill = Métrica)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = round(Valor, 2)),
+            position = position_stack(vjust = 0.5), size = 3, color = "white") +
+  scale_fill_manual(values = colores_metricas) +
+  labs(title = "Supervivencia global (SG)",
+       x = "Modelo", y = "Valor de la métrica") +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+

@@ -9,10 +9,9 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r}
-# Instala si no los tienes
-#install.packages(c("readxl", "randomForest", "caret", "fastshap", "dplyr"))
+# Carga de datos
 
+```{r}
 # Cargar librerías
 library(openxlsx)
 library(randomForest)
@@ -26,12 +25,9 @@ library(dplyr)
 data <- read.xlsx("datos_PCA.xlsx")
 ```
 
-------------------------------------------------------------------------
+# Modelo RF - LOO
 
 ```{r}
-library(dplyr)
-library(caret)
-library(randomForest)
 
 # 1. Preparar X e Y
 Y <- as.factor(data$X1ª_eval)
@@ -41,19 +37,19 @@ X <- data %>%
   select(where(is.numeric)) %>%
   as.data.frame()  # convertir a data.frame por si train lo necesita
 
-# 2. Definir grid de hiperparámetros
+# 2. Grid de hiperparámetros para tuning
 grid_rf <- expand.grid(mtry = seq(2, floor(sqrt(ncol(X)) * 2), by = 1))
 
-# 3. Control de validación cruzada tipo LOO
+# 3. Configuración de LOO automático
 ctrl_loo <- trainControl(
   method = "LOOCV",
   classProbs = TRUE,
   savePredictions = "final"
 )
 
-# 4. Entrenamiento optimizado
+# 4. Entrenamiento del Random Forest con LOO
 set.seed(123)
-modelo_rf_tuned <- train(
+modelo_rf_loo <- train(
   x = X,
   y = Y,
   method = "rf",
@@ -63,21 +59,11 @@ modelo_rf_tuned <- train(
   ntree = 500
 )
 
-# 5. Mejor parámetro y rendimiento
-print(modelo_rf_tuned)
-
-# 6. Confusion matrix
-confusionMatrix(modelo_rf_tuned$pred$pred, modelo_rf_tuned$pred$obs)
+# 5. Evaluación del rendimiento predictivo con LOO
+confusionMatrix(modelo_rf_loo$pred$pred, modelo_rf_loo$pred$obs)
 ```
 
-------------------------------------------------------------------------
-
-```{r}
-# Confusion matrix y métricas
-confusionMatrix(modelo_rf_tuned$pred$pred, modelo_rf_tuned$pred$obs)
-```
-
-------------------------------------------------------------------------
+# Variables SHAP
 
 ```{r}
 # Crear función predictora
@@ -87,7 +73,7 @@ predictor <- function(object, newdata) {
 
 # Calcular SHAP para cada clase (ejemplo para clase "PE")
 shap_vals <- fastshap::explain(
-  object = modelo_rf_tuned$finalModel,
+  object = modelo_rf_loo$finalModel,
   feature_names = names(X),
   X = X,
   pred_wrapper = function(object, newdata) {
@@ -105,8 +91,6 @@ print(head(mean_shap, 20))
 
 ```
 
-------------------------------------------------------------------------
-
 ```{r}
 library(ggplot2)
 
@@ -122,11 +106,11 @@ ggplot(head(df_shap, 20), aes(x = reorder(Variable, SHAP_Importance), y = SHAP_I
   theme_minimal()
 ```
 
-# Selección con SHAP
+# Modelo RF con SHAP
 
 ```{r}
 # Seleccionar las N variables más importantes (por ejemplo, top 20)
-top_vars <- head(df_shap[order(-df_shap$SHAP_Importance), "Variable"], 30)
+top_vars <- head(df_shap[order(-df_shap$SHAP_Importance), "Variable"], 33)
 
 # Crear un nuevo X solo con esas variables
 X_shap <- data[, top_vars]
@@ -163,3 +147,92 @@ confusionMatrix(modelo_rf_shap$pred$pred, modelo_rf_shap$pred$obs)
 ```
 
 El modelo Random Forest entrenado con las 30 variables seleccionadas por SHAP presentó un rendimiento inferior al azar (accuracy = 38.2%, kappa = --0.058), sin capacidad discriminativa válida. Este resultado indica que, en este conjunto de datos, la selección de variables basada únicamente en SHAP no garantiza un modelo robusto. Se confirma la importancia de combinar criterios de interpretabilidad con evaluación empírica del rendimiento. El modelo PLS-DA con selección por VIP sigue siendo el más equilibrado en términos de rendimiento y explicabilidad.
+
+# GINI
+
+```{r}
+data <- read.xlsx("datos_PCA.xlsx")
+
+library(caret)
+library(randomForest)
+library(dplyr)
+
+# 1. Preparar X e Y
+Y <- as.factor(data$X1ª_eval)
+
+X <- data %>%
+  select(-c('X1ª_eval', 'Mejor_resp')) %>%
+  select(where(is.numeric)) %>%
+  as.data.frame()
+
+# 2. Grid de hiperparámetros para tuning
+grid_rf <- expand.grid(mtry = seq(2, floor(sqrt(ncol(X)) * 2), by = 1))
+
+# 3. Configuración de LOO automático
+ctrl_loo <- trainControl(
+  method = "LOOCV",
+  classProbs = TRUE,
+  savePredictions = "final"
+)
+
+# 4. Entrenamiento del Random Forest con LOO
+set.seed(123)
+modelo_rf_loo <- train(
+  x = X,
+  y = Y,
+  method = "rf",
+  trControl = ctrl_loo,
+  tuneGrid = grid_rf,
+  importance = TRUE,
+  ntree = 500
+)
+
+# 5. Evaluación del rendimiento predictivo con LOO
+confusionMatrix(modelo_rf_loo$pred$pred, modelo_rf_loo$pred$obs)
+```
+
+```{r}
+# 6. Obtener importancia de variables (por clase)
+gini_importance <- varImp(modelo_rf_loo, scale = FALSE)$importance
+
+# Añadir media por fila como 'Overall' y ordenar
+gini_table <- gini_importance %>%
+  mutate(Overall = rowMeans(across(everything()))) %>%
+  tibble::rownames_to_column("variable") %>%
+  arrange(desc(Overall))
+
+print(gini_table)
+
+# 4. Seleccionar las 29 variables más importantes
+top_vars <- gini_table %>%
+  slice_head(n = 33) %>%
+  pull(variable)
+
+X_top <- X[, top_vars]
+library(writexl)
+
+# Exportar a Excel
+write_xlsx(X_top, path = "variables-RF-X1eval.xlsx")
+# 5. VALIDACIÓN LOO MANUAL CON SOLO LAS 29 VARIABLES
+
+predicciones <- factor(levels(Y)[0], levels = levels(Y))
+
+for (i in 1:nrow(X_top)) {
+  X_train <- X_top[-i, ]
+  Y_train <- Y[-i]
+  X_test  <- X_top[i, , drop = FALSE]
+  
+  modelo_loo <- randomForest(
+    x = X_train,
+    y = Y_train,
+    ntree = 500,
+    importance = TRUE
+  )
+  
+  pred_i <- predict(modelo_loo, newdata = X_test)
+  predicciones[i] <- pred_i
+}
+
+# 6. Matriz de confusión real con LOO
+confusionMatrix(predicciones, Y)
+```

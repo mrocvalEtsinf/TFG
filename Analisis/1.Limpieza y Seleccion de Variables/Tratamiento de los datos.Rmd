@@ -23,7 +23,7 @@ En este primer paso, cargaremos los datos y aplicaremos un tratamiento previo, i
 ## 1.2 Carga de librerías
 
 ```{r}
-library(readxl)   
+  
 library(dplyr)    
 library(ggplot2)
 library(mice)
@@ -35,7 +35,8 @@ library(writexl)
 
 ```{r}
 # Reemplaza "datos.xlsx" y "hoja1" con el nombre real de tu archivo y hoja
-datos <- read_excel("/Users/manuelrocamoravalenti/Desktop/TFG/Datos_Crudo/DatosAnalisisPrediccion.xlsx")
+library(openxlsx)
+datos <- read.xlsx("/Users/manuelrocamoravalenti/Desktop/TFG/Datos_Crudo/DatosAnalisisPrediccion.xlsx")
 
 ```
 
@@ -60,40 +61,33 @@ names(datos)[names(datos) == "Sexo"] <- "Sex"
 Existen algunas variables repetidas en el conjunto de datos, las cuales, algunas está completas en un paciente y otras no, la finalidad de combinarlas es rear una sola columna mas completa.
 
 ```{r}
+# Fusionar columnas duplicadas usando coalesce
 datos <- datos %>%
-  mutate(estudios = coalesce(`Estudios...14`, `Estudios...29`)) %>%
-  select(-`Estudios...14`, -`Estudios...29`)
-
-datos <- datos %>%
-  mutate(est_civil = coalesce(`Est_civil...15`, `Est_civil...31`)) %>%
-  select(-`Est_civil...15`, -`Est_civil...31`)
-
-datos <- datos %>%
-  mutate(hogar = coalesce(`Comp_hogar...16`, `Comp_hogar...32`)) %>%
-  select(-`Comp_hogar...16`, -`Comp_hogar...32`)
-
-datos <- datos %>%
-  mutate(MOOSs = coalesce(`MOSs...17`, `MOSs...33`)) %>%
-  select(-`MOSs...17`, -`MOSs...33`)
-
-datos <- datos %>%
-  mutate(ansiedad = coalesce(`Ansiedad...18`, `Ansiedad...36`)) %>%
-  select(-`Ansiedad...18`, -`Ansiedad...36`)
-
-datos <- datos %>%
-  mutate(depresion = coalesce(`Depresion...19`, `Depresion...37`)) %>%
-  select(-`Depresion...19`, -`Depresion...37`)
-
-datos <- datos %>%
-  mutate(MNA = coalesce(`MNA...20`, `MNA...27`)) %>%
-  select(-`MNA...20`, -`MNA...27`)
+  mutate(
+    Estudios   = coalesce(Estudios, Estudios.1),
+    Est_civil  = coalesce(Est_civil, Est_civil.1),
+    Comp_hogar = coalesce(Comp_hogar, Comp_hogar.1),
+    MOSs       = coalesce(MOSs, MOSs.1),
+    Ansiedad   = coalesce(Ansiedad, Ansiedad.1),
+    Depresion  = coalesce(Depresion, Depresion.1),
+    MNA        = coalesce(MNA, MNA.1)
+  ) %>%
+  select(
+    -Estudios.1, -Est_civil.1, -Comp_hogar.1,
+    -MOSs.1, -Ansiedad.1, -Depresion.1, -MNA.1
+  )
 ```
 
 Las variables de 'estudio' y 'hogar', como tienen tan pocos valores faltante, vamos a sustituir los espacios vacios, por el valor 'Unknown'.
 
 ```{r}
-datos$estudios[is.na(datos$estudios)] <- "Unknown"
-datos$hogar[is.na(datos$hogar)] <- "Unknown"
+datos$Estudios[is.na(datos$Estudios)] <- "Unknown"
+datos$Est_civil[is.na(datos$Est_civil)] <- "Unknown"
+datos$Comp_hogar[is.na(datos$Comp_hogar)] <- "Unknown"
+datos$MOSs[is.na(datos$MOSs)] <- "Unknown"
+datos$Ansiedad[is.na(datos$Ansiedad)] <- "Unknown"
+datos$Depresion[is.na(datos$Depresion)] <- "Unknown"
+datos$MNA[is.na(datos$MNA)] <- "Unknown"
 ```
 
 # 2. LIMPIEZA
@@ -109,17 +103,12 @@ Esto nos permite reducir el impacto de datos incompletos y mejorar la fiabilidad
 Las columnas que vamos a eliminar no le dan valor alguno al análisis, es por ello que se eliminan manualmente, algunas de ellas como las fechas y las variables respuesta. (First_evaluation, Second_evaluation), serán vitales en futuros análisis.
 
 ```{r}
-datos <- datos %>% select(-Num_pac, -Fecha_nac, -Fecha_dx, -Peso, -Talla,
-                          -G8, -Audicion, -Barthel, -Lawton_Brody, -SPPB,
-                          -Caida_6m, -Pfeiffer, -Mini_mental, -Social_Gijon,
-                          -Yesavage, -CIRS, -Charlson, -Polifarmacia, -Sd_geriatr,
-                          -Clasif_geriatr_Balducci, -Clasif_geriatr_SIOG1,
-                          -Biopsia_liq, -Tipo_mut_Liq, -Fecha_inicio_pem, -Mejor_resp, 
-                          -Fecha_exitus, -Fecha_últ_control, -Fecha_SLP, -Fecha_SG, 
-                          -Fecha_progresión, -Observaciones, -'Leuc%', -'Linf%', 
-                          -'CD45+', -First_evaluation, -First_evaluation_num, 
-                          -Mejor_resp_num, -T, -N, -M, -'Toxicidad_si/no', 
-                          -Tipo_tox, -Grado_tox, -SG, -SG_cens)
+datos <- datos %>%
+  select(
+    -Leucoc_tot, -Leucoc_1C, -Leucoc_2C, -Leucoc_1eval, -Leucoc_PE,
+    -HLADR.Lin_.Leuc, -mDC_.Leuc, -pDC_.Leuc, -CD3_.Leuc, -Leuc.,
+    -HLADR.Lin_C_Leuc, -mDC_C_Leuc, -pDC_C_Leuc, -CD3_C_Leuc
+  )
 ```
 
 ## 2.2 Análisis de datos faltantes (Columnas)

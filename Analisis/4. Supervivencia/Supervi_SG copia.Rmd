@@ -1,0 +1,225 @@
+---
+title: "AnalisisSupervi"
+author: "Manuel Rocamora Valenti"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Carga de datos
+
+```{r}
+library(openxlsx)
+data = read.xlsx('df_final.xlsx')
+```
+
+```{r}
+library(Coxmos)
+library(RColorConesa)
+
+# Crear Y (2 columnas: tiempo y evento)
+Y <- data[, c("SG", "Exitus_sí.no")]
+
+# Crear X (todas las demás columnas excepto SG y Exitus_sí.no)
+X <- data[, !(names(data) %in% c("SG", "Exitus_sí.no","SLP"))]
+
+# Asegúrate de binarizar factores si los hay
+X <- factorToBinary(X = X, all = TRUE)
+
+# Comprobar EPV (eventos por variable)
+Y <- data[, c("SG", "Exitus_sí.no")]
+colnames(Y) <- c("time", "event")
+```
+
+# Análisis exploratorio
+
+```{r}
+ggp_density.event <- plot_events(Y = Y, 
+                                 categories = c("Censored","Event"),
+                                 y.text = "Number of observations", 
+                                 roundTo = 0.5, 
+                                 max.breaks = 15, 
+                                 txt.x.angle = 90)
+ggp_density.event$plot
+```
+
+El gráfico muestra la distribución de exitus y censuras a lo largo del tiempo de supervivencia global. Esta distribución sugiere una buena representación de eventos tempranos y una base adecuada para el análisis de supervivencia, aunque la interpretación de efectos a largo plazo debe hacerse con cautela.
+
+# Event Per Variable (EPV)
+
+```{r}
+EPV <- getEPV(X, Y)
+EPV
+```
+
+En este caso, el valor del EPV es de 0.38805, lo que indica que el número de predictores es alto en relación con el número de eventos observados. Esto hace que **no sea fiable aplicar algoritmos clásicos de supervivencia**, ya que son propensos al **sobreajuste** en estas condiciones.
+
+# Preprocesado
+
+```{r}
+factorToBinary(X = X, all = TRUE, sep = "_")
+```
+
+# MODELOS DE SUPERVIVIENCIA
+
+## Cox Elastic Net
+
+```{r}
+cv.coxen <- cv.coxmos(method = "coxEN",
+                          X = X, Y = Y,
+                          EN.alpha.list = c(0.1, 0.5, 0.9),
+                          n_run = 2,                        
+                          k_folds = nrow(X))         # LOO = un fold por paciente
+
+cv.coxen
+```
+
+El modelo coxEN con EN.alpha = 0.1 y 3 variables ofrece un rendimiento aceptable (C-Index ≈ 0.68, AUC ≈ 0.61). El IBS está justo en el umbral de aceptabilidad. Podría considerarse un punto de partida sólido, pero aún mejorable si se exploran más combinaciones de parámetros o se seleccionan variables de forma más refinada.
+
+## sPLS-ICOX
+Con k_folds = nrow(X) no funciona, en cambio, con un k_folds = 5 por ejemplo, si que funciona, pero dada la dimensión de los datos no es posible.
+
+```{r}
+cv.splsicox <- cv.coxmos(method = "splsicox",
+                             X = X, Y = Y,
+                             max.ncomp = 2,
+                              MIN_EPV = 0.005,
+                              penalty.list = c(0.5, 0.9),
+                             n_run = 1, k_folds = nrow(X))
+cv.splsicox
+```
+
+
+No se construye un modelo valido.
+
+## sPLS-DRCOX
+
+```{r}
+cv.splsdrcox_dynamic <- cv.coxmos(method = "splsdrcox",
+                                      X = X, Y = Y,
+                                      max.ncomp = 2,
+                                      vector = NULL,
+                                      MIN_NVAR = 1,
+                                      MAX_NVAR = 50,
+                                      n.cut_points = 10,
+                                      n_run = 1,                        
+                                      k_folds = nrow(X))
+cv.splsdrcox_dynamic
+```
+
+```{r}
+cv.splsdrcox_dynamic$opt.nvar
+```
+
+```{r}
+splsdrcox_dynamic_model <- coxmos(method = "splsdrcox",
+                                  X = X, Y = Y, 
+                                  n.comp = 1, #cv.splsdrcox_dynamic_res$opt.comp,
+                                  vector = 11, #cv.splsdrcox_dynamic_res$opt.nvar,
+                                  n.cut_points = 10)
+splsdrcox_dynamic_model
+
+```
+
+El componente latente 1 del modelo sPLS-DR Cox se asocia significativamente con el riesgo de muerte. Aunque su coeficiente es pequeño en escala, su efecto es estadísticamente relevante (*p* = 0.016), lo que sugiere que las variables seleccionadas en ese componente contribuyen a discriminar el riesgo de los pacientes.
+
+## sPLS-DACOX
+
+```{r}
+cv.splsdacox_dynamic_res <- cv.coxmos(method = "splsdacox",
+                                      X = X, Y = Y, 
+                                      max.ncomp = 2,
+                                      vector = NULL,
+                                      MIN_NVAR = 1,
+                                      MAX_NVAR = 50, 
+                                      n.cut_points = 10, 
+                                      n_run = 1,                        
+                                      k_folds = nrow(X))             # LOO
+
+cv.splsdacox_dynamic_res$opt.nvar
+cv.splsdacox_dynamic_res$opt.comp
+```
+
+```{r}
+splsdacox_dynamic_model <- coxmos(method = "splsdacox",
+                                  X = X, Y = Y, 
+                                  n.comp = 1, #cv.splsdacox_dynamic_res$opt.comp, 
+                                  vector = 6) #cv.splsdacox_dynamic_res$opt.nvar,
+                                  
+splsdacox_dynamic_model
+```
+
+El modelo splsdacox ha identificado un componente latente (comp_1) que **predice de forma significativa el riesgo de mortalidad**. Aunque la magnitud del coeficiente es pequeña (por escala), su **dirección negativa** y el **p-valor de 0.044** indican que **mayores valores del componente se asocian a mejor pronóstico**.
+
+# Validación de los modelos
+Si eliminamos "CoxElasticNet" = cv.coxen, el codigo funciona.
+
+```{r}
+lst_models <- list("CoxElasticNet" = cv.coxen,
+                   "sPLS-DRCOX-Dynamic" = splsdrcox_dynamic_model,
+                   "sPLS-DACOX-Dynamic" = splsdacox_dynamic_model)
+
+# Paso 1: Verificar predicciones para cada modelo
+modelo_ok <- sapply(lst_models, function(m) {
+  pred <- tryCatch(predict(m, newdata = X, type = "risk"), error = function(e) NULL)
+  !is.null(pred) && length(pred) == nrow(X)
+})
+
+# Paso 2: Filtrar solo los modelos válidos
+lst_models_clean <- lst_models[modelo_ok]
+
+# Paso 3: Evaluar modelos válidos
+eval_results <- eval_Coxmos_models(
+  lst_models = lst_models_clean,
+  X_test = X,
+  Y_test = Y,
+  times = NULL)
+```
+
+```{r}
+lst_eval_results_auc <- plot_evaluation(eval_results, evaluation = "AUC", pred.attr = "mean")
+lst_eval_results_brier <- plot_evaluation(eval_results, evaluation = "IBS", pred.attr = "mean")
+```
+
+```{r}
+lst_eval_results_auc$lst_plots$lineplot.mean
+```
+
+```{r}
+lst_eval_results_auc$lst_plot_comparisons$anova
+```
+
+```{r}
+lst_ph_ggplot <- plot_proportionalHazard(lst_models$`sPLS-DRCOX-Dynamic`)
+lst_ph_ggplot
+```
+
+```{r}
+lst_ph_ggplot <- plot_proportionalHazard(lst_models$`sPLS-DACOX-Dynamic`)
+lst_ph_ggplot
+```
+
+# INTERPRETACION
+
+## Kaplan-Meier
+
+### sPLS - DRCOX
+
+```{r}
+LST_KM_RES_LP <- getAutoKM(type = "LP",
+                           model = lst_models$`sPLS-DRCOX-Dynamic`)
+LST_KM_RES_LP$LST_PLOTS$LP
+```
+
+### sPLS - DACOX
+
+```{r}
+LST_KM_RES_LP <- getAutoKM(type = "LP",
+                           model = lst_models$`sPLS-DACOX-Dynamic`)
+LST_KM_RES_LP$LST_PLOTS$LP
+```
+
+# 

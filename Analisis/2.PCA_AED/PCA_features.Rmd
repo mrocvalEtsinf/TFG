@@ -303,7 +303,7 @@ grafico_vars + grafico_inds  # Esto los pone lado a lado
 ```
 
 ```{r fig.width=14, fig.height=6, fig.align='center', dpi=300}
-fviz_contrib(res.pca, choice = "var", axes = 1, top = 50)
+fviz_contrib(res.pca, choice = "var", axes = 1, top = 20)
 #fviz_contrib(res.pca, choice = "var", axes = 2, top = 50)
 #fviz_contrib(res.pca, choice = "var", axes = 3, top = 50)
 #fviz_contrib(res.pca, choice = "var", axes = 4, top = 50)

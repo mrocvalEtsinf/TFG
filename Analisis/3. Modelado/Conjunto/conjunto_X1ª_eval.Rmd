@@ -230,6 +230,9 @@ vars_finales <- unique(vars_importantes$variable)
 MODELO
 
 ```{r}
+# Suponiendo que cada fila tiene exactamente un 1
+Y_factor <- apply(Y, 1, function(row) colnames(Y)[which.max(row)])
+Y <- factor(Y_factor)
 X_filtrado <- X[, vars_finales]
 pls_model_refit <- opls(X_filtrado, Y, predI = 2, orthoI = 0)
 
@@ -250,6 +253,12 @@ for (i in 1:nrow(X_filtrado)) {
 
 # Confusion matrix
 caret::confusionMatrix(factor(mypred, levels = levels(Y)), Y)
+```
+
+### PRUEBAS
+
+```{r}
+
 ```
 
 # RF
@@ -408,11 +417,11 @@ confusionMatrix(modelo_rf_shap$pred$pred, modelo_rf_shap$pred$obs)
 # NAIVE BAYES
 
 ```{r}
+# Librerías necesarias
 library(caret)
-library(e1071)  # Backend de Naive Bayes
+library(e1071)   # Usamos naiveBayes de e1071
+library(dplyr)
 
-
-data <- read.xlsx("datos_PCA.xlsx")
 # 1. Definir Y e X (solo numéricas)
 Y <- as.factor(data$X1ª_eval)
 
@@ -421,50 +430,67 @@ X <- data %>%
   dplyr::select(where(is.numeric)) %>%
   as.data.frame()
 
-# 2. Control de validación cruzada Leave-One-Out
-ctrl_loo <- trainControl(
-  method = "LOOCV",
-  classProbs = TRUE,
-  savePredictions = "final"
-)
+# 2. Preprocesado: centrar y escalar
+X_scaled <- scale(X)
 
-# 3. Entrenamiento Naive Bayes
+# 3. Leave-One-Out manual con naiveBayes (e1071)
 set.seed(123)
-modelo_nb <- train(
-  x = X,
-  y = Y,
-  method = "nb",  # Naive Bayes
-  trControl = ctrl_loo,  # o ctrl_kfold_smote si usas SMOTE y CV
-  preProcess = c("center", "scale"),  # escalar si es necesario
-  tuneGrid = expand.grid(usekernel = TRUE, fL = 1, adjust = 1)
-)
+n <- nrow(X_scaled)
+preds <- character(n)
 
-# 4. Resultado del modelo
-print(modelo_nb)
+for (i in 1:n) {
+  X_train <- X_scaled[-i, , drop = FALSE]
+  Y_train <- Y[-i]
+  X_test  <- X_scaled[i, , drop = FALSE]
 
-# 5. Matriz de confusión
-confusionMatrix(modelo_nb$pred$pred, modelo_nb$pred$obs)
+  modelo_i <- naiveBayes(x = X_train, y = Y_train, laplace = 1)
+
+  pred_i <- predict(modelo_i, X_test)
+  preds[i] <- as.character(pred_i)
+}
+
+# 4. Matriz de confusión
+confusionMatrix(factor(preds, levels = levels(Y)), Y)
 ```
 
 ```{r}
-# Evaluar p-values por variable usando test univariado
+library(dplyr)
+
+# 1. Definir Y como factor
+Y <- as.factor(data$X1ª_eval)
+
+# 2. Eliminar columnas "X1ª_eval" y "Mejor_resp", y quedarnos solo con numéricas
+X <- data[, !(names(data) %in% c("X1ª_eval", "Mejor_resp"))]
+X <- X[, sapply(X, is.numeric)]
+
+# 2. Filtrar variables con p < 0.06 (ANOVA univariado)
 pvals <- apply(X, 2, function(x) {
   summary(aov(x ~ Y))[[1]][["Pr(>F)"]][1]
 })
-
-# Filtrar por p-value
 vars_significativas <- names(pvals)[pvals < 0.06]
-X_sig <- X[, vars_significativas]
+X_sig <- X[, vars_significativas, drop = FALSE]
 
-# Reentrenar
-modelo_nb_sig <- train(
-  x = X_sig,
-  y = Y,
-  method = "nb",
-  trControl = ctrl_loo,
-  preProcess = c("center", "scale")
-)
-confusionMatrix(modelo_nb_sig$pred$pred, modelo_nb_sig$pred$obs)
+# 3. Escalar
+X_sig_scaled <- scale(X_sig)
+
+# 4. Validación Leave-One-Out manual
+set.seed(123)
+n <- nrow(X_sig_scaled)
+preds <- character(n)
+
+for (i in 1:n) {
+  X_train <- X_sig_scaled[-i, , drop = FALSE]
+  Y_train <- Y[-i]
+  X_test  <- X_sig_scaled[i, , drop = FALSE]
+
+  modelo_i <- naiveBayes(x = X_train, y = Y_train, laplace = 1)
+  pred_i <- predict(modelo_i, X_test)
+
+  preds[i] <- as.character(pred_i)
+}
+
+# 5. Evaluar resultados
+confusionMatrix(factor(preds, levels = levels(Y)), Y)
 ```
 
 # glmnet
@@ -510,7 +536,7 @@ print(modelo_glmnet)
 confusionMatrix(modelo_glmnet$pred$pred, modelo_glmnet$pred$obs)
 ```
 
-# OrdinalNet
+# SVM
 
 ```{r}
 # Paquetes necesarios

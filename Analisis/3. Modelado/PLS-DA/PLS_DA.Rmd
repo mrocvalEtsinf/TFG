@@ -253,8 +253,6 @@ pls_vip <- opls(x = X_vip, y = Y,
                 scaleC = "standard",
                 predI = 2)
 
-
-
 ```
 
 El modelo PLS-DA con 2 componentes explica el 58% de la varianza de la variable de respuesta y presenta una capacidad predictiva moderada (Q² = 0.227). Aunque la capacidad de predicción fuera de muestra no es elevada, los tests de permutación sugieren que el modelo es marginalmente significativo (pR2Y y pQ2 = 0.05). El resultado es aceptable en contextos exploratorios o con tamaños muestrales reducidos como en este caso.
@@ -305,14 +303,120 @@ caret::confusionMatrix(mypred_Vip, Y, positive = "M")
 # P-Valor de los coeficientes
 
 ```{r}
+pvalJack <- function(pls, X, Y){
+  
+  k <- pls@summaryDF$pre
+  coefmod <- pls@coefficientMN
+  a <- NULL
+  
+  # Escalar X y Y como en el modelo original
+  X <- scale(X, center = pls@xMeanVn, scale = pls@xSdVn)
+  Y <- scale(matrix(Y, ncol = 1), center = pls@yMeanVn, scale = pls@ySdVn)
+  
+  for (i in 1:nrow(X)) {
+    
+    pls_i <- suppressWarnings(ropls::opls(
+      X[-i, , drop = FALSE],
+      Y[-i, , drop = FALSE],
+      scaleC = "none",
+      predI = k,
+      crossvalI = 1,
+      permI = 0,
+      fig.pdfC = "none",
+      info.txtC = "none"
+    ))
+    
+    # Asegurar que los coeficientes tengan el mismo número de filas
+    if (nrow(pls_i@coefficientMN) < nrow(coefmod)) {
+      exclvar <- setdiff(rownames(coefmod), rownames(pls_i@coefficientMN))
+      b <- matrix(0, ncol = 1, nrow = length(exclvar))
+      rownames(b) <- exclvar
+      pls_i@coefficientMN <- rbind(pls_i@coefficientMN, b)
+    }
+    
+    orden <- match(rownames(coefmod), rownames(pls_i@coefficientMN))
+    plscoefs_i <- pls_i@coefficientMN[orden, ]
+    a <- cbind(a, plscoefs_i)
+  }
+  
+  # Estadísticos Jackknife
+  est <- (a - matrix(rep(coefmod, ncol(a)), ncol = ncol(a)))^2
+  estjack <- sqrt(((nrow(X) - 1) / nrow(X)) * rowSums(est))
+  
+  pvalor <- 2 * pt(abs(coefmod / estjack), df = nrow(X) - 1, lower.tail = FALSE)
+  
+  colnames(pvalor) <- c("pvalue")
+  return(pvalor)
+}
+
+Y_num <- as.numeric(Y)
+pls_vip_num <- opls(x = X_vip, y = Y_num, crossvalI = nrow(X_vip),
+                    scaleC = "standard", predI = 2)
+pvalores <- pvalJack(pls = pls_vip_num, X = X_vip, Y = Y_num)
+round(pvalores, 4)
+```
+
+# P-Valor + VIP
+
+```{r}
+# Convertir lista a data.frame correctamente
+pvalores_df <- data.frame(
+  variable = pvalores$variable,
+  pvalue = unlist(pvalores[-length(pvalores)])  # Quitamos el último elemento que es el nombre de variables
+)
+
+# Hacer merge con vip_df
+vip_pval_df <- merge(vip_df, pvalores_df, by = "variable")
+
+# Filtrar variables descartables: alta VIP pero p > 0.3
+descartables <- vip_pval_df %>%
+  filter(VIP > 1, pvalue < 0.05)
+
+# Ver resultado
+print(descartables)
+```
+
+```{r}
+data <- read.xlsx("datos_PCA.xlsx")
+
+# 2. Variables seleccionadas (VIP > 1 y p-valor < 0.05)
+vars_finales <- c(
+  "Lymphocytes_media", "Histology_Escamoso", "Lymphocytes_diff_1C_2C",
+  "Age_at_diagnosis", "Histology_Otros", "ALI_pre", "PCR",
+  "Hemoglobin_diff_2C_1eval", "Platelets_cv", "Leukocytes_media",
+  "Total_cholesterol", "PNI_diff_0_1C", "Hemoglobin_diff_0_1C",
+  "Platelets_media", "Cardiopathy", "Albumin_slope"
+)
+
+# 3. Preparar X e Y
+X <- data[, vars_finales]
+X <- as.matrix(X)
+Y <- as.factor(data$`X1ª_eval`)
+
+# 4. Inicializar vector de predicciones
+mypred <- character(nrow(X))
+names(mypred) <- rownames(X)
+
+# 5. LOO manual con tu script original
+for (i in 1:nrow(X)) {
+  X_train <- X[-i, , drop = FALSE]
+  Y_train <- Y[-i]
+
+  # Modelo PLS-DA
+  pls_model <- opls(X_train, Y_train, predI = 2, orthoI = 0, fig.pdfC = "none", info.txtC = "none")
+
+  # Predicción de la muestra dejada fuera
+  X_test <- X[i, , drop = FALSE]
+  pred_i <- predict(pls_model, newdata = X_test)
+
+  mypred[i] <- as.character(pred_i)
+}
+
+# 6. Convertir predicciones a factor
+mypred <- factor(mypred, levels = levels(Y))
+
+# 7. Evaluación
+confusionMatrix(mypred, Y)
 ```
 
 # Conclusion
-
-Se desarrolló un modelo de análisis discriminante por mínimos cuadrados parciales (PLS-DA) para clasificar a los pacientes según su evaluación clínica (EE, RP y PE), utilizando como predictores únicamente variables numéricas. Tras una primera ejecución del modelo con todas las variables disponibles, se calcularon los valores de importancia de proyección (VIP), seleccionando aquellas con **VIP \> 1** por su mayor contribución a la discriminación entre clases. Esta selección permite mejorar la interpretabilidad del modelo y reducir ruido, priorizando las variables más relevantes en términos biológicos y estadísticos.
-
-Las variables seleccionadas incluyen biomarcadores dinámicos como **Hemoglobin_slope**, **PNI_slope**, **Albumin_slope**, **PLR_slope**, **SII_media**, y otras relacionadas con el estado clínico basal del paciente, como **ALI_pre** o el hábito tabáquico. La presencia de múltiples variables tipo "\_slope" subraya la importancia de las **tendencias longitudinales** de los biomarcadores en la evolución clínica, más allá de los valores absolutos puntuales.
-
-El modelo entrenado con estas variables mostró un excelente rendimiento tras validación cruzada Leave-One-Out (LOO), con una **exactitud del 88,2%**, un **índice Kappa de 0,80** (indicando una alta concordancia más allá del azar), y una **alta precisión por clase**, especialmente para el grupo de progresión evidente (PE), que se identificó con un 100% de especificidad y precisión.
-
-Estos resultados refuerzan el potencial de los biomarcadores dinámicos como **herramientas pronósticas en oncología personalizada**, mostrando que el seguimiento temporal de marcadores inflamatorios y nutricionales ofrece una información crítica para anticipar la respuesta clínica de los pacientes tratados con inmunoterapia.

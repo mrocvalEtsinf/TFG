@@ -297,7 +297,7 @@ Y <- as.factor(data$Mejor_resp)
 X <- data %>%
   select(-c('X1ª_eval', 'Mejor_resp')) %>%
   select(where(is.numeric)) %>%
-  as.data.frame()
+  as.data.frame()  # convertir a data.frame por si train lo necesita
 
 # 2. Definir grid de hiperparámetros
 grid_rf <- expand.grid(mtry = seq(2, floor(sqrt(ncol(X)) * 2), by = 1))
@@ -364,7 +364,7 @@ ggplot(head(df_shap, 20), aes(x = reorder(Variable, SHAP_Importance), y = SHAP_I
 
 ```{r}
 
-# Seleccionar las N variables más importantes 
+# Seleccionar las N variables más importantes (por ejemplo, top 20)
 top_vars <- head(df_shap[order(-df_shap$SHAP_Importance), "Variable"], 30)
 
 # Crear un nuevo X solo con esas variables
@@ -404,80 +404,61 @@ confusionMatrix(modelo_rf_shap$pred$pred, modelo_rf_shap$pred$obs)
 # NAIVE BAYES
 
 ```{r}
-# Cargar librerías necesarias
-library(e1071)     # Para naiveBayes
-library(dplyr)
-library(caret)     # Para confusionMatrix
+library(caret)
+library(e1071)  # Backend de Naive Bayes
 
-# 1. Preparar datos
+# 1. Definir Y e X (solo numéricas)
 Y <- as.factor(data$Mejor_resp)
 
-# Seleccionar solo variables numéricas y eliminar columnas no deseadas
 X <- data %>%
+  dplyr::select(-c("X1ª_eval", "Mejor_resp")) %>%
   dplyr::select(where(is.numeric)) %>%
-  dplyr::select(-matches("X1ª_eval")) %>%   # <- aquí se evita el problema del guion
   as.data.frame()
 
-# Escalar manualmente
-X_scaled <- scale(X)
+# 2. Control de validación cruzada Leave-One-Out
+ctrl_loo <- trainControl(
+  method = "LOOCV",
+  classProbs = TRUE,
+  savePredictions = "final"
+)
 
-# Inicializar vector de predicciones
-preds_loo <- factor(rep(NA, nrow(X_scaled)), levels = levels(Y))
+# 3. Entrenamiento Naive Bayes
+set.seed(123)
+modelo_nb <- train(
+  x = X,
+  y = Y,
+  method = "nb",  # Naive Bayes
+  trControl = ctrl_loo,  # o ctrl_kfold_smote si usas SMOTE y CV
+  preProcess = c("center", "scale"),  # escalar si es necesario
+  tuneGrid = expand.grid(usekernel = TRUE, fL = 1, adjust = 1)
+)
 
-# 2. Validación Leave-One-Out (LOO)
-for (i in 1:nrow(X_scaled)) {
-  X_train <- X_scaled[-i, , drop = FALSE]
-  Y_train <- Y[-i]
-  X_test  <- X_scaled[i, , drop = FALSE]
+# 4. Resultado del modelo
+print(modelo_nb)
 
-  modelo <- naiveBayes(x = X_train, y = Y_train)
-  pred <- predict(modelo, newdata = X_test)
-
-  preds_loo[i] <- pred
-}
-
-# 3. Evaluar rendimiento
-confusionMatrix(preds_loo, Y)
+# 5. Matriz de confusión
+confusionMatrix(modelo_nb$pred$pred, modelo_nb$pred$obs)
 ```
 
 ```{r}
-# 3. Calcular p-valores con ANOVA univariado
+# Evaluar p-values por variable usando test univariado
 pvals <- apply(X, 2, function(x) {
-  anova_result <- tryCatch({
-    summary(aov(x ~ Y))[[1]][["Pr(>F)"]][1]
-  }, error = function(e) NA)
-  return(anova_result)
+  summary(aov(x ~ Y))[[1]][["Pr(>F)"]][1]
 })
 
-# 4. Mostrar p-valores ordenados (opcional)
-pvals_ordenados <- sort(pvals)
-print(pvals_ordenados)
-
-# 5. Seleccionar variables con p < 0.05
-umbral <- 0.05
-vars_significativas <- names(pvals)[!is.na(pvals) & pvals < umbral]
-cat("Variables seleccionadas:", vars_significativas, "\n")
-
-# 6. Subconjunto de X con solo las variables significativas
+# Filtrar por p-value
+vars_significativas <- names(pvals)[pvals < 0.06]
 X_sig <- X[, vars_significativas]
-X_scaled <- scale(X_sig)
 
-# 7. Inicializar vector de predicciones
-preds <- factor(rep(NA, nrow(X_scaled)), levels = levels(Y))
-
-# 8. LOO manual con Naive Bayes
-for (i in 1:nrow(X_scaled)) {
-  X_train <- X_scaled[-i, , drop = FALSE]
-  Y_train <- Y[-i]
-  X_test <- X_scaled[i, , drop = FALSE]
-
-  modelo <- naiveBayes(x = X_train, y = Y_train)
-  preds[i] <- predict(modelo, newdata = X_test)
-}
-
-# 9. Evaluación del modelo
-resultado <- confusionMatrix(preds, Y)
-print(resultado)
+# Reentrenar
+modelo_nb_sig <- train(
+  x = X_sig,
+  y = Y,
+  method = "nb",
+  trControl = ctrl_loo,
+  preProcess = c("center", "scale")
+)
+confusionMatrix(modelo_nb_sig$pred$pred, modelo_nb_sig$pred$obs)
 ```
 
 # glmnet
@@ -523,7 +504,7 @@ print(modelo_glmnet)
 confusionMatrix(modelo_glmnet$pred$pred, modelo_glmnet$pred$obs)
 ```
 
-# SVM
+# OrdinalNet
 
 ```{r}
 # Paquetes necesarios
@@ -536,8 +517,8 @@ library(iml)
 Y <- as.factor(data$`Mejor_resp`)
 
 X <- data %>%
-  dplyr::select(-c("X1ª_eval", "Mejor_resp")) %>%
-  dplyr::select(where(is.numeric)) %>%
+  select(-c("X1ª_eval", "Mejor_resp")) %>%
+  select(where(is.numeric)) %>%
   as.data.frame()
 
 # Quitar variables sin varianza
@@ -579,10 +560,9 @@ library(dplyr)
 # 1. Preparar los datos
 Y <- as.factor(data$`Mejor_resp`)
 X <- data %>%
-  dplyr::select(-c("X1ª_eval", "Mejor_resp")) %>%
-  dplyr::select(where(is.numeric)) %>%
+  select(-c("X1ª_eval", "Mejor_resp")) %>%
+  select(where(is.numeric)) %>%
   as.data.frame()
-
 
 # Quitar columnas problemáticas
 nzv <- nearZeroVar(X, saveMetrics = TRUE)

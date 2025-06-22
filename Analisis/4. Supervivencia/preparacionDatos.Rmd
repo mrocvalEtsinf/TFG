@@ -1,0 +1,149 @@
+---
+title: "Análisis de supervivencia - Coxmos"
+author: "Manuel Rocamora Valenti"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# INTRODUCCION
+
+\<EXPLCIAR EL PROBLEMA\>
+
+# CARGA DE Y LIMPIEZA DE DATOS
+
+```{r}
+library(dplyr)
+library(openxlsx)
+
+
+# Leer CSV (ajusta el nombre si es necesario)
+data <- read.csv("dataSupervivenciaa.csv", stringsAsFactors = FALSE, sep=';')
+
+# Lista de variables deseadas
+vars_deseadas <- c(
+  "Sexo", "Edad_dx", "ECOG", "%_perd_peso","Exp_tab",
+  "Diabetes", "Cardiop", "Enf_neurod","Histología_num", "Estadio", "PD-L1", "Estatinas",
+  "Col_total", "LDH", "Prot_tot", "Albumina", "PCR", "Hb", "Leucoc_tot", "Neutrofilos", "Linf_tot", "Plaquetas",
+  "NLR_pre", "PLR_pre", "PNI_pre", "ALI_pre", "SII_pre", "LDH_1C", "Prot_1C", "Alb_1C", "Hb_1C",
+  "Leucoc_1C", "Neutr_1C", "Linf_1C", "Plaq_1C", "NLR_1C", "PLR_1C", "PNI_1C", "SII_1C",
+  "LDH_2C", "Prot_2C", "Alb_2C", "Hb_2C", "Leucoc_2C", "Neutr_2C", "Linf_2C", "Plaq_2C", "NLR_2C",
+  "PLR_2C", "PNI_2C", "SII_2C","Toxicidad_si/no", "Tipo_tox",
+  "Grado_tox", "Interrupc_tto", "Motivo_inter", "Progresión_sí/no",
+  "Exitus_sí.no", "SLP","SG"
+)
+
+# Filtrar columnas presentes en el dataset
+vars_existentes <- intersect(vars_deseadas, colnames(data))
+data_filtrado <- data %>% dplyr::select(all_of(vars_existentes))
+
+# Guardar el nuevo dataset como .csv
+write.csv(data_filtrado, "data_filtrado.csv", row.names = FALSE)
+```
+
+```{r}
+# Calcular el porcentaje de NA por columna
+na_porcentaje <- colMeans(is.na(data_filtrado)) * 100
+
+# Filtrar columnas con menos o igual al 25% de NA
+data_sin_na25 <- data_filtrado[, na_porcentaje <= 25]
+```
+
+```{r}
+# 1. Calcular el porcentaje de NA por fila
+na_porcentaje_filas <- rowMeans(is.na(data_sin_na25)) * 100
+
+# 2. Filtrar: conservar solo las filas con ≤25% de NA
+data_filtrado_final <- data_sin_na25[na_porcentaje_filas <= 25, ]
+
+# 3. Verificar el resultado
+dim(data_sin_na25)        # Antes
+dim(data_filtrado_final)  # Después
+
+# 4. (Opcional) Guardar el resultado si lo deseas
+write.xlsx(data_filtrado_final, "data_filtrado_final_1.xlsx")
+
+
+
+```
+
+## Tipo de dato
+
+```{r}
+
+data = read.xlsx('data_filtrado_final.xlsx')
+
+
+# Paso 1: Definir variables categóricas
+vars_factor <- c(
+  "Sexo", "ECOG", "Histología_num", "Estadio",
+  "Tipo_tox", "Grado_tox", "Motivo_inter"
+)
+
+# Paso 2: Convertir esas columnas a factor
+data[vars_factor] <- lapply(data[vars_factor], function(x) as.factor(x))
+
+# Paso 3: Convertir el resto a numérico (sustituyendo comas por puntos si es necesario)
+vars_numeric <- setdiff(names(data), vars_factor)
+
+data[vars_numeric] <- lapply(data[vars_numeric], function(x) {
+  as.numeric(gsub(",", ".", as.character(x)))
+})
+```
+
+## NA's
+
+```{r}
+library(missRanger)
+
+# Imputar todo el data.frame (tanto numéricas como categóricas)
+df_imputado <- missRanger(data = data, pmm.k = 3, num.trees = 100, seed = 123)
+
+```
+
+# TRASFORMACIÓN VARIABLES CORRELACIONADAS
+
+```{r}
+# Asegúrate de tener tu dataset cargado como:
+# df <- read.csv("mi_archivo.csv")  o similar
+
+# 1. Detectar columnas con sufijos de evolución
+cols_evo <- grep("(_pre|_1C|_2C)$", names(df_imputado), value = TRUE)
+
+# 2. Agrupar por base de variable (antes del guion bajo)
+bases <- unique(sub("(_pre|_1C|_2C)$", "", cols_evo))
+
+# 3. Crear nuevo data.frame para los resúmenes
+resumen_vars <- data.frame(row.names = rownames(df_imputado))
+
+for (base in bases) {
+  col_pre <- paste0(base, "_pre")
+  col_1C  <- paste0(base, "_1C")
+  col_2C  <- paste0(base, "_2C")
+  
+  cols_existentes <- c(col_pre, col_1C, col_2C)
+  cols_existentes <- cols_existentes[cols_existentes %in% names(df_imputado)]
+  
+  datos_base <- df_imputado[, cols_existentes, drop = FALSE]
+  
+  resumen_vars[[paste0(base, "_mean")]] <- rowMeans(datos_base, na.rm = TRUE)
+  resumen_vars[[paste0(base, "_sd")]]   <- apply(datos_base, 1, sd, na.rm = TRUE)
+  
+  if (all(c(col_pre, col_1C) %in% names(df_imputado))) {
+    resumen_vars[[paste0(base, "_diff_1C_pre")]] <- df_imputado[[col_1C]] - df_imputado[[col_pre]]
+  }
+  if (all(c(col_1C, col_2C) %in% names(df_imputado))) {
+    resumen_vars[[paste0(base, "_diff_2C_1C")]] <- df_imputado[[col_2C]] - df_imputado[[col_1C]]
+  }
+  if (all(c(col_pre, col_2C) %in% names(df_imputado))) {
+    resumen_vars[[paste0(base, "_slope")]] <- (df_imputado[[col_2C]] - df_imputado[[col_pre]]) / 2
+  }
+}
+
+# 4. Eliminar columnas originales
+df_sin_evo <- df_imputado[, !(names(df_imputado) %in% cols_evo)]
+
+# 5. Combinar dataset limpio con resúmenes
+df_final <- cbind(df_sin_evo, resumen_vars)
+
+write.xlsx(df_final, "df_final.xlsx")
+```

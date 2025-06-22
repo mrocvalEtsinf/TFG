@@ -1,0 +1,163 @@
+---
+title: "XGBoost"
+author: "Manuel Rocamora Valenti"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(caret)
+library(xgboost)
+library(openxlsx)
+library(xgboost)
+
+```
+
+# Carga de datos
+
+```{r}
+data <- read.xlsx("datos_PCA.xlsx")
+```
+
+```{r}
+# Y debe ser un factor con las clases
+Y <- as.factor(data$`X1ª_eval`)
+
+# X debe ser un data.frame solo con variables numéricas
+X <- data[, !(names(data) %in% c("X1ª_eval", "Mejor_resp"))]  # quitar variables respuesta
+X <- X[, sapply(X, is.numeric)]  # filtrar numéricas
+X <- as.data.frame(X)  # asegurar que es data.frame
+
+# Convertir a matriz y asegurarte de que los nombres sean válidos
+X_matrix <- as.matrix(X)
+colnames(X_matrix) <- make.names(colnames(X), unique = TRUE)
+
+```
+
+# Modelo XGBoost
+
+```{r}
+library(caret)
+library(xgboost)
+library(dplyr)
+
+# 1. Preparar Y como factor y X como data.frame
+Y <- as.factor(data$X1ª_eval)
+X <- data %>%
+  select(-c('X1ª_eval', 'Mejor_resp')) %>%
+  select(where(is.numeric)) %>%
+  as.data.frame()
+
+# 2. Control de validación LOOCV
+ctrl_loo <- trainControl(
+  method = "LOOCV",
+  classProbs = TRUE,
+  savePredictions = "final"
+)
+
+# 3. Grid de hiperparámetros básicos (puedes ampliarlo si quieres optimizar)
+grid_xgb <- expand.grid(
+  nrounds = 50,
+  max_depth = 3,
+  eta = 0.1,
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 1
+)
+
+# 4. Entrenar modelo con XGBoost + LOO
+set.seed(123)
+modelo_xgb_loo <- train(
+  x = X,
+  y = Y,
+  method = "xgbTree",
+  trControl = ctrl_loo,
+  tuneGrid = grid_xgb
+)
+
+# 5. Evaluar rendimiento real con predicciones LOO
+confusionMatrix(modelo_xgb_loo$pred$pred, modelo_xgb_loo$pred$obs)
+```
+
+# IMPORTANCIA
+
+```{r}
+# Extraer el modelo final entrenado con xgboost desde caret
+modelo_final <- modelo_xgb_loo$finalModel
+
+# Convertir los datos a DMatrix (necesario para xgb.importance)
+dtrain <- xgb.DMatrix(data = as.matrix(X), label = as.numeric(Y) - 1)
+
+# Obtener importancia de variables (por Gain, Cover, Frequency)
+importancia_xgb <- xgb.importance(model = modelo_final, feature_names = colnames(X))
+
+# Ver las variables más importantes por Gain
+print(importancia_xgb)
+```
+
+```{r}
+# 1. Preparar datos
+Y <- as.factor(data$X1ª_eval)
+Y_num <- as.numeric(Y) - 1
+X <- data %>%
+  select(-c('X1ª_eval', 'Mejor_resp')) %>%
+  select(where(is.numeric)) %>%
+  as.data.frame()
+
+# 2. Extraer modelo final del caret
+modelo_final <- modelo_xgb_loo$finalModel
+
+# 3. Importancia de variables por Gain
+dtrain <- xgb.DMatrix(data = as.matrix(X), label = Y_num)
+importancia_xgb <- xgb.importance(model = modelo_final, feature_names = colnames(X))
+
+# 4. Seleccionar las 10 variables más importantes
+top10_vars <- importancia_xgb %>%
+  arrange(desc(Gain)) %>%
+  slice_head(n = 33) %>%
+  pull(Feature)
+
+X_top10 <- X[, top10_vars]
+X_matrix <- as.matrix(X_top10)
+n <- nrow(X_matrix)
+library(writexl)
+
+# Exportar a Excel
+write_xlsx(X_top10, path = "variables-Xgboost-X1eval.xlsx")
+# 5. LOO manual con solo las 10 variables más importantes
+preds <- numeric(n)
+
+for (i in 1:n) {
+  train_idx <- setdiff(1:n, i)
+  dtrain <- xgb.DMatrix(data = X_matrix[train_idx, ], label = Y_num[train_idx])
+  dtest <- xgb.DMatrix(data = X_matrix[i, , drop = FALSE])
+
+  model <- xgboost(
+    data = dtrain,
+    objective = "multi:softprob",
+    num_class = length(unique(Y_num)),
+    eval_metric = "mlogloss",
+    max_depth = 3,
+    eta = 0.1,
+    nrounds = 50,
+    verbosity = 0
+  )
+
+  prob <- predict(model, newdata = dtest)
+  prob_matrix <- matrix(prob, nrow = length(unique(Y_num)), byrow = TRUE)
+  preds[i] <- which.max(prob_matrix) - 1
+}
+
+# 6. Evaluar rendimiento
+pred_factor <- factor(preds, levels = 0:(length(levels(Y)) - 1), labels = levels(Y))
+confusionMatrix(pred_factor, Y)
+```
+
+# 
+
+# 

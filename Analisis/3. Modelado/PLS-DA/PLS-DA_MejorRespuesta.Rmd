@@ -1,0 +1,254 @@
+---
+title: "PLS-DA ORDINAL"
+author: "Manuel Rocamora Valenti"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# CARGA DE DATOS
+
+```{r}
+library(openxlsx)
+library(dplyr)
+library(ropls)
+library(caret)
+
+# Cargar los datos
+data <- read.xlsx("datos_PCA.xlsx")
+
+# X: todas las variables numéricas predictoras
+X <- data[, setdiff(names(data), c("c", "Mejor_resp"))]
+X <- X[, sapply(X, is.numeric)]
+
+# Y: convertir respuesta ordinal ("RP" < "EE" < "PE")
+Y_factor <- factor(data$Mejor_resp, levels = c("RC", "RP", "EE", "PE"))
+Y_num <- as.numeric(Y_factor)
+Y_num <- matrix(Y_num, ncol = 1)
+
+```
+
+# MODELO PLS-DA CON TODAS LAS VARIABLES
+
+```{r}
+# Modelo con LOO automático ya creado
+modelo_completo <- opls(X, Y_num,
+                        predI = 2, orthoI = 0,
+                        scaleC = "standard",
+                        crossvalI = nrow(X),  # LOO automático
+                        fig.pdfC = "none")
+
+# Predicción sobre el mismo conjunto de entrenamiento
+pred <- predict(modelo_completo)
+
+# Redondear a clases
+pred_classes <- round(pred)
+
+# Convertir a factor
+pred_factor <- factor(pred_classes, levels = 1:4, labels = levels(Y_factor))
+
+# Matriz de confusión (train)
+confusionMatrix(pred_factor, Y_factor)
+```
+
+## Calculo de metricas del error con LOO manual
+
+```{r}
+# Vector para predicciones
+pred_factor <- numeric(nrow(X))
+
+# LOO sobre modelo final
+for (i in 1:nrow(X)) {
+  X_train <- X[-i, ]
+  Y_train <- Y_num[-i, , drop = FALSE]
+  X_test <- X[i, , drop = FALSE]
+  
+  modelo_final <- opls(X_train, Y_train,
+                       predI = 2, orthoI = 0,
+                       scaleC = "standard",
+                       fig.pdfC = "none")
+  
+  pred_i <- predict(modelo_final, newdata = X_test)
+  pred_factor[i] <- round(pred_i)
+}
+
+# Convertir predicciones a factor
+mypred_factor <- factor(pred_factor, levels = 1:4, labels = levels(Y_factor))
+
+# Matriz de confusión
+confusionMatrix(mypred_factor, Y_factor)
+```
+
+# OBTENER VIP Y P-VALORES
+
+```{r}
+# VIP
+vip <- modelo_completo@vipVn
+
+# Función Jackknife para p-valores
+pvalJack <- function(pls, X, Y){
+  k <- pls@summaryDF$pre
+  coefmod <- pls@coefficientMN
+  a <- NULL
+  X <- scale(X, center = pls@xMeanVn, scale = pls@xSdVn)
+  Y <- scale(Y, center = pls@yMeanVn, scale = pls@ySdVn)
+  
+  for (i in 1:nrow(X)) {
+    pls_i <- suppressWarnings(opls(X[-i,,drop=FALSE], Y[-i,,drop=FALSE],
+                                   scaleC = "none", predI = k,
+                                   fig.pdfC = "none", crossvalI = 1, permI = 0))
+    
+    if(nrow(pls_i@coefficientMN) < nrow(coefmod)){
+      excl <- setdiff(rownames(coefmod), rownames(pls_i@coefficientMN))
+      b <- matrix(0, ncol = 1, nrow = length(excl))
+      rownames(b) <- excl
+      pls_i@coefficientMN <- rbind(pls_i@coefficientMN, b)
+    }
+    order <- match(rownames(coefmod), rownames(pls_i@coefficientMN))
+    a <- cbind(a, pls_i@coefficientMN[order, ])
+  }
+  
+  est <- (a - matrix(rep(coefmod, ncol(a)), ncol = ncol(a)))^2
+  estjack <- sqrt(((nrow(X) - 1) / nrow(X)) * rowSums(est))
+  pvalor <- 2 * pt(abs(coefmod / estjack), df = nrow(X) - 1, lower.tail = FALSE)
+  colnames(pvalor) <- "pvalue"
+  return(pvalor)
+}
+
+# Calcular p-valores
+pvalores <- pvalJack(modelo_completo, X, Y_num)
+
+```
+
+# SELECCIONAR VARIABLES IMPORTANTES
+
+```{r}
+# Combinar VIP y p-valores
+resumen <- data.frame(
+  variable = names(vip),
+  VIP = as.numeric(vip),
+  pvalue = as.numeric(pvalores)
+)
+
+# Selección de variables (criterio combinado)
+seleccionadas <- resumen %>%
+  filter(VIP > 1 & pvalue < 0.05) %>%
+  arrange(desc(VIP))
+
+vars_finales <- seleccionadas$variable
+print(seleccionadas)
+```
+
+## MODELO FINAL CON VARIABLES SELECCIONADAS
+
+```{r}
+# Reducir X a las variables seleccionadas
+X_final <- X[, vars_finales, drop = FALSE]
+
+# Preparar Y otra vez por claridad
+Y_factor <- factor(data$Mejor_resp, levels = c("RC","RP", "EE", "PE"))
+Y_num <- as.numeric(Y_factor)
+Y_num <- matrix(Y_num, ncol = 1)
+
+# Instalar si no la tienes
+
+
+# Cargar la librería
+library(writexl)
+
+# Exportar a Excel
+write_xlsx(X_final, path = "variablesPLS-DA-mejorResp.xlsx")
+```
+
+## VALIDACION SIN LEAVE-ONE-OUT
+
+```{r}
+# Modelo con LOO automático ya creado
+modelo_completo_VIP <- opls(X_final, Y_num,
+                        predI = 2, orthoI = 0,
+                        scaleC = "standard",
+                        crossvalI = nrow(X_final),  # LOO automático
+                        fig.pdfC = "none")
+
+# Predicción sobre el mismo conjunto de entrenamiento
+pred <- predict(modelo_completo_VIP)
+
+# Redondear a clases
+pred_classes <- round(pred)
+
+# Convertir a factor
+pred_factor <- factor(pred_classes, levels = 1:4, labels = levels(Y_factor))
+
+# Matriz de confusión (train)
+confusionMatrix(pred_factor, Y_factor)
+```
+
+## VALIDACIÓN LEAVE-ONE-OUT
+
+```{r}
+# Vector para predicciones
+mypred <- numeric(nrow(X_final))
+
+# LOO sobre modelo final
+for (i in 1:nrow(X_final)) {
+  X_train <- X_final[-i, ]
+  Y_train <- Y_num[-i, , drop = FALSE]
+  X_test <- X_final[i, , drop = FALSE]
+  
+  modelo_final <- opls(X_train, Y_train,
+                       predI = 2, orthoI = 0,
+                       scaleC = "standard",
+                       fig.pdfC = "none")
+  
+  pred_i <- predict(modelo_final, newdata = X_test)
+  mypred[i] <- round(pred_i)
+}
+
+# Convertir predicciones a factor
+mypred_factor <- factor(mypred, levels = 1:4, labels = levels(Y_factor))
+
+# Matriz de confusión
+confusionMatrix(mypred_factor, Y_factor)
+```
+
+
+# GRAFICOS
+```{r}
+# Variables seleccionadas para X1eval
+vars_x1eval <- c(
+  "PLR_slope", "Platelets_slope", "Hemoglobin_slope", "NLR_slope",
+  "Albumin_diff_0_1C", "Hemoglobin_diff_0_1C", "Platelets_diff_0_1C",
+  "Albumin_diff_1C_2C", "SII_cv", "PNI_diff_0_1C"
+)
+
+# Filtrar X
+X <- X[, vars_x1eval]
+
+A = 2
+mypls = opls(x = X, y = Y_num, predI = A, crossvalI = nrow(X), scaleC = "standard")
+
+plot(x = mypls, typeVc = "x-score",
+     parCexN = 0.8, parCompVi = c(1, 2),
+     parEllipsesL = TRUE,
+     parAsColFcVn = as.factor(Y_num),  # <-- conversión necesaria aquí
+     parLabVc = rownames(X),
+     parPaletteVc = NA,
+     parTitleL = TRUE)
+```
+```{r}
+plot(x = mypls, typeVc = "xy-weight",
+     parCexN = 0.8, parCompVi = c(1, 2), parPaletteVc = NA, 
+     parTitleL = TRUE, parCexMetricN = NA)
+```
+```{r}
+coef_ordenado <- mypls@coefficientMN[order(abs(mypls@coefficientMN[,1]), decreasing = TRUE), , drop = FALSE]
+
+par(mar = c(10, 4, 4, 2))  # Margen inferior más grande para las etiquetas
+barplot(t(coef_ordenado),
+        las = 2,                      # Rotación vertical de etiquetas
+        cex.names = 0.8,              # Tamaño del texto
+        col = "grey",            # Color opcional
+        main = "Coeficientes del modelo PLS-DA",
+        ylab = "Valor del coeficiente")
+```
+
+

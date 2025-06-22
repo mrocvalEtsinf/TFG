@@ -1,0 +1,303 @@
+---
+title: "OrdinalNet"
+author: "Manuel Rocamora Valenti"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+```{r}
+# Librerías necesarias
+library(ordinalNet)
+library(dplyr)
+library(openxlsx)
+library(caret)
+
+# 1. Cargar datos
+data <- openxlsx::read.xlsx("datos_PCA.xlsx")
+
+# 2. Variable respuesta como factor ordenado
+niveles_ordenados <- c("RC", "RP", "EE", "PE")
+y <- factor(data$Mejor_resp, levels = niveles_ordenados, ordered = TRUE)
+
+# 3. Crear matriz X
+data_predictoras <- data[, !(colnames(data) %in% c("Mejor_resp", "X1ª_eval"))]
+
+# Convertir caracteres a factor
+data_predictoras[] <- lapply(data_predictoras, function(x) {
+  if (is.character(x)) as.factor(x) else x
+})
+
+# One-hot encoding (sin intercepto)
+X <- model.matrix(~ . -1, data = data_predictoras)
+
+# 4. Validación Leave-One-Out manual
+set.seed(123)
+pred_loo <- vector("character", length = nrow(X))
+
+for (i in 1:nrow(X)) {
+  X_train <- X[-i, , drop = FALSE]
+  y_train <- y[-i]
+  X_test  <- X[i, , drop = FALSE]
+
+  modelo_i <- ordinalNet(
+    x = X_train,
+    y = y_train,
+    family = "cumulative",
+    link = "logit",
+    parallelTerms = TRUE,
+    nonparallelTerms = FALSE,
+    alpha = 1
+  )
+
+  pred <- predict(modelo_i, newx = X_test, type = "class")
+  pred_loo[i] <- ifelse(is.null(pred), NA, as.character(pred))
+}
+
+# 5. Evaluación
+pred_loo_factor <- factor(pred_loo, levels = 1:4, labels = niveles_ordenados, ordered = TRUE)
+y <- factor(y, levels = niveles_ordenados, ordered = TRUE)
+
+# 6. Matriz de confusión
+confusionMatrix(pred_loo_factor, y)
+```
+
+# 10-100
+
+```{r}
+set.seed(123)  # Reproducibilidad
+
+library(ordinalNet)
+library(caret)
+
+resultados <- data.frame(Iteracion = integer(), Accuracy = numeric(), Variables = character())
+
+for (iter in 1:100) {
+  # 1. Selección aleatoria de 15 variables
+  vars_aleatorias <- sample(colnames(X), size = 10)
+  X_reducido <- X[, vars_aleatorias, drop = FALSE]
+
+  # 2. Inicializar predicciones LOO
+  pred_loo <- vector("character", length = nrow(X_reducido))
+
+  for (i in 1:nrow(X_reducido)) {
+    X_train <- X_reducido[-i, , drop = FALSE]
+    y_train <- y[-i]
+    X_test  <- X_reducido[i, , drop = FALSE]
+
+    modelo_i <- ordinalNet(
+      x = X_train,
+      y = y_train,
+      family = "cumulative",
+      link = "logit",
+      parallelTerms = TRUE,
+      nonparallelTerms = FALSE,
+      alpha = 1
+    )
+
+    pred <- predict(modelo_i, newx = X_test, type = "class")
+    pred_loo[i] <- if (is.null(pred)) NA else as.character(pred)
+  }
+
+  # 3. Evaluación
+  niveles_ordenados <- levels(y)
+  pred_loo_factor <- factor(pred_loo, levels = 1:4, labels = niveles_ordenados, ordered = TRUE)
+
+  cm <- confusionMatrix(pred_loo_factor, y)
+
+  # 4. Guardar resultados
+  acc <- cm$overall["Accuracy"]
+  resultados <- rbind(resultados, data.frame(
+    Iteracion = iter,
+    Accuracy = as.numeric(acc),
+    Variables = paste(vars_aleatorias, collapse = ", ")
+  ))
+  
+  cat("Iteración", iter, "- Accuracy:", round(acc, 3), "\n")
+}
+
+# Ver top 5 combinaciones más prometedoras
+resultados_top <- resultados[order(-resultados$Accuracy), ]
+print(head(resultados_top, 5))
+```
+
+# 20 - 100
+
+```{r}
+set.seed(122)  # Reproducibilidad
+
+library(ordinalNet)
+library(caret)
+
+resultados <- data.frame(Iteracion = integer(), Accuracy = numeric(), Variables = character())
+
+for (iter in 1:100) {
+  # 1. Selección aleatoria de 20 variables
+  vars_aleatorias <- sample(colnames(X), size = 20)
+  X_reducido <- X[, vars_aleatorias, drop = FALSE]
+
+  # 2. Inicializar predicciones LOO
+  pred_loo <- vector("character", length = nrow(X_reducido))
+
+  for (i in 1:nrow(X_reducido)) {
+    X_train <- X_reducido[-i, , drop = FALSE]
+    y_train <- y[-i]
+    X_test  <- X_reducido[i, , drop = FALSE]
+
+    modelo_i <- ordinalNet(
+      x = X_train,
+      y = y_train,
+      family = "cumulative",
+      link = "logit",
+      parallelTerms = TRUE,
+      nonparallelTerms = FALSE,
+      alpha = 1
+    )
+
+    pred <- predict(modelo_i, newx = X_test, type = "class")
+    pred_loo[i] <- if (is.null(pred)) NA else as.character(pred)
+  }
+
+  # 3. Evaluación
+  niveles_ordenados <- levels(y)
+  pred_loo_factor <- factor(pred_loo, levels = 1:4, labels = niveles_ordenados, ordered = TRUE)
+
+  cm <- confusionMatrix(pred_loo_factor, y)
+
+  # 4. Guardar resultados
+  acc <- cm$overall["Accuracy"]
+  resultados <- rbind(resultados, data.frame(
+    Iteracion = iter,
+    Accuracy = as.numeric(acc),
+    Variables = paste(vars_aleatorias, collapse = ", ")
+  ))
+  
+  cat("Iteración", iter, "- Accuracy:", round(acc, 3), "\n")
+}
+
+# Ver top 5 combinaciones más prometedoras
+resultados_top <- resultados[order(-resultados$Accuracy), ]
+print(head(resultados_top, 5))
+```
+
+# 30 - 100
+
+```{r}
+set.seed(121)  # Reproducibilidad
+
+library(ordinalNet)
+library(caret)
+
+resultados <- data.frame(Iteracion = integer(), Accuracy = numeric(), Variables = character())
+
+for (iter in 1:100) {
+  # 1. Selección aleatoria de 15 variables
+  vars_aleatorias <- sample(colnames(X), size = 30)
+  X_reducido <- X[, vars_aleatorias, drop = FALSE]
+
+  # 2. Inicializar predicciones LOO
+  pred_loo <- vector("character", length = nrow(X_reducido))
+
+  for (i in 1:nrow(X_reducido)) {
+    X_train <- X_reducido[-i, , drop = FALSE]
+    y_train <- y[-i]
+    X_test  <- X_reducido[i, , drop = FALSE]
+
+    modelo_i <- ordinalNet(
+      x = X_train,
+      y = y_train,
+      family = "cumulative",
+      link = "logit",
+      parallelTerms = TRUE,
+      nonparallelTerms = FALSE,
+      alpha = 1
+    )
+
+    pred <- predict(modelo_i, newx = X_test, type = "class")
+    pred_loo[i] <- if (is.null(pred)) NA else as.character(pred)
+  }
+
+  # 3. Evaluación
+  niveles_ordenados <- levels(y)
+  pred_loo_factor <- factor(pred_loo, levels = 1:4, labels = niveles_ordenados, ordered = TRUE)
+
+  cm <- confusionMatrix(pred_loo_factor, y)
+
+  # 4. Guardar resultados
+  acc <- cm$overall["Accuracy"]
+  resultados <- rbind(resultados, data.frame(
+    Iteracion = iter,
+    Accuracy = as.numeric(acc),
+    Variables = paste(vars_aleatorias, collapse = ", ")
+  ))
+  
+  cat("Iteración", iter, "- Accuracy:", round(acc, 3), "\n")
+}
+
+# Ver top 5 combinaciones más prometedoras
+resultados_top_30 <- resultados[order(-resultados$Accuracy), ]
+print(head(resultados_top_30, 5))
+```
+
+# 0.647
+
+```{r}
+# Librerías
+library(ordinalNet)
+library(openxlsx)
+library(caret)
+
+# Leer los datos
+data <- openxlsx::read.xlsx("datos_PCA.xlsx")
+
+# Variable respuesta
+y <- factor(data$Mejor_resp, levels = c("RC", "RP", "EE", "PE"), ordered = TRUE)
+
+# Matriz de predictores
+data_predictoras <- data[, !(colnames(data) %in% c("Mejor_resp", "X1ª_eval"))]
+data_predictoras[] <- lapply(data_predictoras, function(x) {
+  if (is.character(x)) as.factor(x) else x
+})
+X <- model.matrix(~ . -1, data = data_predictoras)
+
+# Variables seleccionadas (de la iteración 8)
+mejores_vars <- c(
+  "Leukocytes_slope", "Smoking_exposure", "Platelets_cv", 
+  "SII_diff_2C_1eval", "Platelets_media", "Lymphocytes_cv", 
+  "PCR", "PLR_slope", "SII_diff_1C_2C", "Platelets_diff_2C_1eval"
+)
+
+X_mejores <- X[, mejores_vars, drop = FALSE]
+
+# LOO
+pred_loo <- vector("character", length = nrow(X_mejores))
+for (i in 1:nrow(X_mejores)) {
+  X_train <- X_mejores[-i, , drop = FALSE]
+  y_train <- y[-i]
+  X_test  <- X_mejores[i, , drop = FALSE]
+
+  modelo_i <- ordinalNet(
+    x = X_train,
+    y = y_train,
+    family = "cumulative",
+    link = "logit",
+    parallelTerms = TRUE,
+    nonparallelTerms = FALSE,
+    alpha = 1
+  )
+
+  pred <- predict(modelo_i, newx = X_test, type = "class")
+  pred_loo[i] <- if (is.null(pred)) NA else as.character(pred)
+}
+
+# Evaluación
+niveles_ordenados <- levels(y)
+pred_loo_factor <- factor(pred_loo, levels = 1:4, labels = niveles_ordenados, ordered = TRUE)
+confusionMatrix(pred_loo_factor, y)
+```
+
+\
