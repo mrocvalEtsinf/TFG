@@ -20,8 +20,8 @@ data <- read.xlsx("datos_PCA.xlsx")
 X <- data[, setdiff(names(data), c("c", "Mejor_resp"))]
 X <- X[, sapply(X, is.numeric)]
 
-# Y: convertir respuesta ordinal ("RP" < "EE" < "PE")
-Y_factor <- factor(data$Mejor_resp, levels = c("RC", "RP", "EE", "PE"))
+# Y: mantener respuesta como factor sin orden (clasificación nominal)
+Y_factor <- factor(data$Mejor_resp)  # sin niveles definidos explícitamente
 Y_num <- as.numeric(Y_factor)
 Y_num <- matrix(Y_num, ncol = 1)
 
@@ -144,13 +144,10 @@ print(seleccionadas)
 # Reducir X a las variables seleccionadas
 X_final <- X[, vars_finales, drop = FALSE]
 
-# Preparar Y otra vez por claridad
-Y_factor <- factor(data$Mejor_resp, levels = c("RC","RP", "EE", "PE"))
+# Preparar Y otra vez por claridad (sin ordenar los niveles)
+Y_factor <- factor(data$Mejor_resp)  # Sin especificar niveles = sin orden
 Y_num <- as.numeric(Y_factor)
 Y_num <- matrix(Y_num, ncol = 1)
-
-# Instalar si no la tienes
-
 
 # Cargar la librería
 library(writexl)

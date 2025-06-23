@@ -21,8 +21,8 @@ data <- read.xlsx("datos_PCA.xlsx")
 X <- data[, setdiff(names(data), c("X1ª_eval", "Mejor_resp"))]
 X <- X[, sapply(X, is.numeric)]
 
-# Y: convertir respuesta ordinal ("RP" < "EE" < "PE")
-Y_factor <- factor(data$X1ª_eval, levels = c("RP", "EE", "PE"))
+# Y: mantener respuesta como factor nominal (sin orden)
+Y_factor <- factor(data$X1ª_eval)  # No se especifica orden
 Y_num <- as.numeric(Y_factor)
 Y_num <- matrix(Y_num, ncol = 1)
 
@@ -119,11 +119,10 @@ print(seleccionadas)
 # Reducir X a las variables seleccionadas
 X_final <- X[, vars_finales, drop = FALSE]
 
-# Preparar Y otra vez por claridad
-Y_factor <- factor(data$X1ª_eval, levels = c("RP", "EE", "PE"))
+# Preparar Y otra vez por claridad (sin niveles ordenados)
+Y_factor <- factor(data$X1ª_eval)  # Sin orden implícito
 Y_num <- as.numeric(Y_factor)
 Y_num <- matrix(Y_num, ncol = 1)
-
 
 library(writexl)
 
